@@ -3,9 +3,9 @@
 import socket
 
 messages = [
-    'This is the message. ',
-    'It will be sent ',
-    'in parts.',
+    b'This is the message. ',
+    b'It will be sent ',
+    b'in parts.',
 ]
 
 server_address = ('127.0.0.1', 10000)

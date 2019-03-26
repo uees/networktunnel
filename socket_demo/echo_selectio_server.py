@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
-import Queue
+import queue
 import select
 import socket
 
 # Create a TCP/IP socket
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setblocking(0)
+server.setblocking(False)
 
 # Bind the socket to the port
 server_address = ('127.0.0.1', 10000)
@@ -25,7 +25,6 @@ outputs = []
 # Outgoing message queues (socket:Queue)
 message_queues = {}
 
-
 if __name__ == "__main__":
 
     while inputs:
@@ -42,11 +41,11 @@ if __name__ == "__main__":
                 # A "readable" server socket is ready to accept a connection
                 connection, client_address = s.accept()
                 print('new connection from', client_address)
-                connection.setblocking(0)
+                connection.setblocking(False)
                 inputs.append(connection)
 
                 # Give the connection a queue for data we want to send
-                message_queues[connection] = Queue.Queue()
+                message_queues[connection] = queue.Queue()
 
             # 第二种情况是这个 socket 是已经建立了的连接，它把数据发了过来，这个时候你就可以通过 recv() 来接收它发过来的数据，
             # 然后把接收到的数据放到 queue 里，这样你就可以把接收到的数据再传回给客户端了。
@@ -64,7 +63,7 @@ if __name__ == "__main__":
                 # 所以这个时候你就可以把这个跟客户端的连接关闭了。
                 else:
                     # Interpret empty result as closed connection
-                    print('closing', client_address, 'after reading no data')
+                    print('closing', s.getsockname(), 'after reading no data')
                     # Stop listening for input on the connection
                     if s in outputs:
                         outputs.remove(s)  # 既然客户端都断开了，我就不用再给它返回数据了，所以这时候如果这个客户端的连接对象还在outputs列表中，就把它删掉
@@ -82,7 +81,7 @@ if __name__ == "__main__":
         for s in writable:
             try:
                 next_msg = message_queues[s].get_nowait()
-            except Queue.Empty:
+            except queue.Empty:
                 # No messages waiting so stop checking for writability.
                 print('output queue for', s.getpeername(), 'is empty')
                 outputs.remove(s)
