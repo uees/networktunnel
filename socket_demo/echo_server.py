@@ -12,7 +12,7 @@ with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as skt:
 
     # bind() 用来关联 socket 到指定的网络接口（IP 地址）和端口号
     skt.bind((HOST, PORT))
-    skt.listen()
+    skt.listen(5)
 
     # accept() 方法阻塞并等待传入连接。当一个客户端连接时，它将返回一个新的 socket 对象
     # 你将用这个 socket 对象和客户端进行通信
