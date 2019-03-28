@@ -104,3 +104,4 @@ venv.bak/
 .mypy_cache/
 .vscode/
 .idea/
+_trial_temp/
