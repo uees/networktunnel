@@ -111,28 +111,3 @@ socks5ErrorMap = {
     c.SOCKS5_COMMAND_NOT_SUPPORTED: CommandNotSupported,
     c.SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED: AddressNotSupported,
 }
-
-
-class RequestRejectedOrFailed(SOCKSError):
-    """
-    Request rejected or failed (0x5b)
-    """
-
-
-class IdentdUnreachable(SOCKSError):
-    """
-    Identd not running or unreachable (0x5c)
-    """
-
-
-class IdentdMismatch(SOCKSError):
-    """
-    Identd could not confirm the request's user ID (0x5a)
-    """
-
-
-socks4ErrorMap = {
-    c.SOCKS4_REJECTED_OR_FAILED: RequestRejectedOrFailed,
-    c.SOCKS4_IEDENTD_UNREACHABL: IdentdUnreachable,
-    c.SOCKS4_IDENTD_MISMATCH: IdentdMismatch,
-}

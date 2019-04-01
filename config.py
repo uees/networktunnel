@@ -54,3 +54,6 @@ class ConfigFactory(object):
 
     def getServerPort(self):
         return self.parser.getint('DEFAULT', 'ServerPort', fallback=6778)
+
+
+config = ConfigFactory()

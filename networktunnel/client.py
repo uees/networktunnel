@@ -2,11 +2,11 @@
 
 import struct
 
-from zope.interface import implementer, directlyProvides, providedBy
 from twisted.internet import defer, interfaces
 from twisted.internet.protocol import Protocol
-from twisted.protocols import tls, policies
+from twisted.protocols import policies, tls
 from twisted.python.failure import Failure
+from zope.interface import directlyProvides, implementer, providedBy
 
 
 class SOCKSError(Exception):

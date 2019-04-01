@@ -1,18 +1,15 @@
 # -*- coding: utf-8 -*-
 
 import os
-
+from configparser import ParsingError
+from configparser import RawConfigParser as ConfigParser
+from socket import inet_aton, inet_ntoa
 from struct import pack, unpack
-from socket import inet_ntoa, inet_aton
-from configparser import ParsingError, RawConfigParser as ConfigParser
 
 from twisted.application import internet, service
-from twisted.internet import reactor
-from twisted.protocols import policies, basic
+from twisted.internet import defer, protocol, reactor, threads
+from twisted.protocols import basic, policies
 from twisted.python import log
-from twisted.internet import defer
-from twisted.internet import protocol
-from twisted.internet import threads
 
 
 def rel(*x):
