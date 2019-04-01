@@ -6,17 +6,15 @@ from twisted.internet import protocol, reactor
 from twisted.internet.address import IPv4Address, IPv6Address, HostnameAddress
 from twisted.protocols import policies
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
-from twisted.python import log
 
-from config import config
-from networktunnel.remote_client import RemoteTCPClient
+from config import ConfigFactory
 
 from . import errors, constants
 from .helpers import get_method, socks_domain_host
 from .logger import LogMixin
 
 
-class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
+class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
     STATE_IGNORED = 0x00
     STATE_METHODS = 0x01  # 协商认证方法
     STATE_AUTH = 0x02  # 认证中
@@ -28,12 +26,13 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def __init__(self):
         self.client = None
+        self.buff = b''
+
         self._version = constants.SOCKS5_VER
         self._state = self.STATE_METHODS
         self._auth_types = [constants.AUTH_TOKEN]
         self._auth_method = None
         self._pipe_type = None
-        self._buf = b''
 
     def connectionMade(self):
         self.log('Connection made', self.transport.getPeer())
@@ -54,8 +53,16 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.client = None
 
     def dataReceived(self, data):
+        # todo 解密
+        # data = self.factory.crypto.decrypt(data)
+
+        if self.is_state(self.STATE_PIPELINE):
+            return self.client.transport.write(data)
+
         if self.is_state(self.STATE_IGNORED):
             return
+
+        self.resetTimeout()
 
         if self.is_state(self.STATE_METHODS):
             return self.negotiate_methods(data)
@@ -67,8 +74,10 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         if self.is_state(self.STATE_COMMAND):
             return self.parse_cmd(data)
 
-        if self.is_state(self.STATE_PIPELINE):
-            return self.client.transport.write(data)
+    def write(self, data):
+        # todo 加密
+        # data = self.factory.crypto.encrypt(data)
+        self.transport.write(data)
 
     def check_version(self, ver: int):
         if ver != self._version:
@@ -102,16 +111,16 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self._auth_method = get_method(methods, self._auth_types)
 
         if self._auth_method == constants.NO_ACCEPTABLE_METHODS:
-            self.setState(self.STATE_IGNORED)
-            self.transport.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
+            self.set_state(self.STATE_IGNORED)
+            self.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
             raise errors.NoAcceptableMethods()
 
         if self._auth_method == constants.AUTH_ANONYMOUS:
-            self.setState(self.STATE_REQUEST)
+            self.set_state(self.STATE_COMMAND)
         else:
-            self.setState(self.STATE_AUTH)
+            self.set_state(self.STATE_AUTH)
 
-        self.transport.write(struct.pack('!BB', self._version, self._auth_method))
+        self.write(struct.pack('!BB', self._version, self._auth_method))
 
     # request
     # +----+------+----------+
@@ -135,6 +144,7 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         # todo auth
         status = 0x01
+        self.set_state(self.STATE_COMMAND)
 
         self.transport.write(struct.pack('!BB', self._version, status))
 
@@ -193,6 +203,8 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         return domain, port
 
     def cmd_connect(self, domain: str, port: int):
+        from .remote_client import RemoteTCPClient
+
         point = TCP4ClientEndpoint(reactor, domain, port)
         d = connectProtocol(point, RemoteTCPClient(self))
 
@@ -205,6 +217,7 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         def error(failure):
             self.make_reply(rep=constants.SOCKS5_HOST_UNREACHABLE)
             self.transport.loseConnection()
+            raise errors.HostUnreachable()
 
         d.addErrback(error)
 
@@ -247,21 +260,9 @@ class RemoteSocksV5Protocol(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.write(response)
 
 
-class RemoteSocksV5ProtocolFactory(protocol.Factory):
-    protocol = RemoteSocksV5Protocol
+class RemoteSocksV5ServerFactory(protocol.Factory):
+    protocol = RemoteSocksV5Server
 
     def __init__(self):
-        self.timeout = config.getTimeOut()
-
-
-def main():
-    from twisted.internet import reactor
-    import sys
-
-    log.startLogging(sys.stdout)
-    reactor.listenTCP(0, RemoteSocksV5ProtocolFactory())
-    reactor.run()
-
-
-if __name__ == "__main__":
-    main()
+        self.config = ConfigFactory.get_config()
+        self.timeout = self.config.getTimeOut()

@@ -5,14 +5,16 @@ from . import constants
 
 
 class RemoteTCPClient(protocol.Protocol, LogMixin):
-    from .remote_server import RemoteSocksV5Protocol
+    from .remote_server import RemoteSocksV5Server
 
-    def __init__(self, server: RemoteSocksV5Protocol):
+    def __init__(self, server: RemoteSocksV5Server):
         self.server = server
 
     def connectionMade(self):
         peer = self.transport.getPeer()
         self.log('Connection made', peer)
+
+        # self.transport.registerProducer(self.peer.transport, True)
 
         self.server.client = self
 

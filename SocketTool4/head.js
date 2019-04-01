@@ -1,4 +1,4 @@
-锘縱ar symbols = " !\"#$%&'()*+,-./0123456789:;<=>?@";
+var symbols = " !\"#$%&'()*+,-./0123456789:;<=>?@";
 var loAZ = "abcdefghijklmnopqrstuvwxyz";
 symbols+= loAZ.toUpperCase();
 symbols+= "[\\]^_`";
@@ -25,7 +25,7 @@ function toAscii(hexinput)
 		var num1 = hex.indexOf(char1);
 		var num2 = hex.indexOf(char2);
 
-                if ((num1+num2)==0) break;  //add by lq 0浣滀负鍙瀛楃涓茬殑缁撴潫
+                if ((num1+num2)==0) break;  //add by lq 0作为可见字符串的结束
 
 		var value = num1 << 4;
 		value = value | num2;

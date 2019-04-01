@@ -1,4 +1,4 @@
-ï»¿
+
 function AddEdit(groupbox,name,text){
  groupbox.push({ID:name,TYPE:"Edit",TEXT:text});
 }
@@ -16,12 +16,12 @@ function OnInit(){
  sockets.push(socket1);
 
  var group1=[];
- AddLabel(group1,'Label1','è¯·è¾“å…¥æ•°å­—1',80); AddEdit(group1,'Edit1','');    AddButton(group1,'Button1','Button1');
- AddLabel(group1,'Label1','è¯·è¾“å…¥æ•°å­—2',80); AddEdit(group1,'Edit2','');   AddButton(group1,'Button2','Button2');
+ AddLabel(group1,'Label1','ÇëÊäÈëÊý×Ö1',80); AddEdit(group1,'Edit1','');    AddButton(group1,'Button1','Button1');
+ AddLabel(group1,'Label1','ÇëÊäÈëÊý×Ö2',80); AddEdit(group1,'Edit2','');   AddButton(group1,'Button2','Button2');
 
  var group2=[];
- AddLabel(group2,'Label1','è¯·è¾“å…¥æ•°å­—3',80);AddEdit(group2,'Edit3','');    AddButton(group2,'Button3','Button3');
- AddLabel(group2,'Label1','è¯·è¾“å…¥æ•°å­—4',80);AddEdit(group2,'Edit4','');   AddButton(group2,'Button4','Button4');
+ AddLabel(group2,'Label1','ÇëÊäÈëÊý×Ö3',80);AddEdit(group2,'Edit3','');    AddButton(group2,'Button3','Button3');
+ AddLabel(group2,'Label1','ÇëÊäÈëÊý×Ö4',80);AddEdit(group2,'Edit4','');   AddButton(group2,'Button4','Button4');
 
  var socket2={ID:"TcpServer02",SOCKETTYPE:"TCP Server",PORT:61000,HEX:0,UI:[]};
  socket2.UI.push(group1);
@@ -78,7 +78,7 @@ function OnSocketEvent(socketid,eventname,param1,param2){
 
    if (eventname=='OnConnect'){
      if (socketid.substring(0,9)=='TcpClient'){
-        Display(socketid,timestr+socketid+'å»ºç«‹è¿žæŽ¥');
+        Display(socketid,timestr+socketid+'½¨Á¢Á¬½Ó');
      }
      if (socketid.substring(0,11)=='TcpServer01'){
         var group=[];
@@ -90,7 +90,7 @@ function OnSocketEvent(socketid,eventname,param1,param2){
         var socket1={ID:socketid,SOCKETTYPE:"TCP Server-Client",PORT:60000,HEX:0,UI:[]};
         socket1.UI.push(group);
         sockets.push(socket1);
-        Display(socketid,timestr+socketid+'å»ºç«‹è¿žæŽ¥');
+        Display(socketid,timestr+socketid+'½¨Á¢Á¬½Ó');
      }
    }
    else  if (eventname=='OnRead'){
@@ -103,14 +103,14 @@ function OnSocketEvent(socketid,eventname,param1,param2){
   }
   else if  (eventname=='OnDisConnect') {
       if (socketid.substring(0,9)=='TcpClient'){
-         Display(socketid,timestr+socketid+'æ–­å¼€è¿žæŽ¥');
+         Display(socketid,timestr+socketid+'¶Ï¿ªÁ¬½Ó');
       }
       if (socketid.substring(0,11)=='TcpServer01'){
         var now=new Date();
         var hour=now.getHours();
         var minute=now.getMinutes();
         var second=now.getSeconds();
-        Display(socketid,timestr+socketid+'æ–­å¼€è¿žæŽ¥');
+        Display(socketid,timestr+socketid+'¶Ï¿ªÁ¬½Ó');
       }
   }
   else{

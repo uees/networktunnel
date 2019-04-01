@@ -7,11 +7,13 @@ from settings import BASE_DIR
 
 def get_config(filepath):
     parser = configparser.ConfigParser()
-    parser.read_file(filepath)
+    parser.read(filepath)
     return parser
 
 
 class ConfigFactory(object):
+    config = None
+
     #
     #    -read(filename)     直接读取文件内容
     #    -sections()         得到所有的section，并以列表的形式返回
@@ -21,6 +23,13 @@ class ConfigFactory(object):
     #    -getint(section,option)    得到section中option的值，返回为int类型，还有相应的getboolean()和getfloat() 函数。
     def __init__(self):
         self.parser = get_config(os.path.join(BASE_DIR, 'default.conf'))
+
+    @classmethod
+    def get_config(cls):
+        if cls.config is None:
+            cls.config = cls()
+
+        return cls.config
 
     def getTimeOut(self):
         return self.parser.getint('DEFAULT', 'timeout', fallback=30)
@@ -54,6 +63,3 @@ class ConfigFactory(object):
 
     def getServerPort(self):
         return self.parser.getint('DEFAULT', 'ServerPort', fallback=6778)
-
-
-config = ConfigFactory()
