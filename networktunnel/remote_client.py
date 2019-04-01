@@ -34,6 +34,9 @@ class RemoteTCPClient(protocol.Protocol, LogMixin):
     def dataReceived(self, data):
         self.server.transport.write(data)
 
+    def write(self, data):
+        self.transport.write(data)
+
 
 class RemoteClientFactory:
     pass
