@@ -5,7 +5,7 @@ from .errors import LoginAuthenticationFailed
 
 @defer.inlineCallbacks
 def auth_token(token):
-    if not token:
+    if token == 'a':
+        yield True
+    else:
         raise LoginAuthenticationFailed()
-
-    yield True

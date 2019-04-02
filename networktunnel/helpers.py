@@ -1,4 +1,5 @@
 import socket
+import struct
 
 from . import constants
 
@@ -10,18 +11,18 @@ from . import constants
 
 def socks_domain_host(host: (str, bytes)):
     host = to_bytes(host)
-    return b''.join((chr(len(host)), host))
+    return b''.join((struct.pack('!B', len(host)), host))
 
 
 def to_bytes(s: (str, bytes)):
     if type(s) == str:
-        return s.encode('utf-8')
+        return s.encode()
     return s
 
 
 def to_str(s: (str, bytes)):
     if type(s) == bytes:
-        return s.decode('utf-8')
+        return s.decode()
     return s
 
 
