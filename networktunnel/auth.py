@@ -8,4 +8,4 @@ def auth_token(token):
     if not token:
         raise LoginAuthenticationFailed()
 
-    return True
+    yield True

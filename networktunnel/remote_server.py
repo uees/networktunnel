@@ -2,7 +2,8 @@
 import socket
 import struct
 
-from twisted.internet import protocol, reactor, defer, threads
+from twisted.python.failure import Failure
+from twisted.internet import protocol, reactor, defer
 from twisted.internet.address import IPv4Address, IPv6Address, HostnameAddress
 from twisted.protocols import policies
 from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
@@ -36,7 +37,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def connectionMade(self):
         self.log('Connection made', self.transport.getPeer())
-        self.setTimeout(self.factory.timeout)
+        # self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
         self.log('Connection time', self.transport.getPeer())
@@ -54,25 +55,27 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         # todo 解密
         # data = self.factory.crypto.decrypt(data)
 
+        def reset_timeout(ignored):
+            self.resetTimeout()
+
         if self.is_state(self.STATE_PIPELINE):
-            return self.client.write(data)
+            self.client.write(data)
 
-        if self.is_state(self.STATE_IGNORED):
-            return
+        elif self.is_state(self.STATE_METHODS):
+            d = self.negotiate_methods(data)
+            d.addCallbacks(reset_timeout, self.on_error)
 
-        self.resetTimeout()
-
-        if self.is_state(self.STATE_METHODS):
-            return self.negotiate_methods(data).addErrback(self.on_error)
-
-        if self.is_state(self.STATE_AUTH):
+        elif self.is_state(self.STATE_AUTH):
             if self._auth_method == constants.AUTH_TOKEN:
-                return self.auth_token(data).addErrback(self.on_error)
+                d = self.auth_token(data)
+                d.addCallbacks(reset_timeout, self.on_error)
 
-            return defer.fail(errors.LoginAuthenticationFailed()).addErrback(self.on_error)
+            else:
+                self.on_error(errors.LoginAuthenticationFailed())
 
-        if self.is_state(self.STATE_COMMAND):
-            return self.parse_cmd(data)
+        elif self.is_state(self.STATE_COMMAND):
+            d = self.parse_cmd(data)
+            d.addErrback(self.on_error)
 
     def write(self, data):
         # todo 加密
@@ -84,18 +87,14 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         server_address = self.transport.getHost()
 
-        if isinstance(failure, errors.NoAcceptableMethods):
-            self.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
-        elif isinstance(failure, errors.LoginAuthenticationFailed):
-            self.write(struct.pack('!BB', self._version, constants.AUTH_ERROR))
-        elif isinstance(failure, errors.CommandNotSupported):
-            self.make_reply(constants.SOCKS5_COMMAND_NOT_SUPPORTED, server_address)
-        elif isinstance(failure, errors.HostUnreachable):
-            self.make_reply(constants.SOCKS5_HOST_UNREACHABLE, server_address)
-        elif isinstance(failure, errors.AddressNotSupported):
-            self.make_reply(constants.SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED, server_address)
+        # failure.value is the exception instance responsible for this failure.
+        if isinstance(failure.value, (errors.NoAcceptableMethods, errors.LoginAuthenticationFailed)):
+            self.write(struct.pack('!BB', self._version, failure.value.code))
         else:
-            self.make_reply(constants.SOCKS5_GENERAL_FAILURE, server_address)
+            if hasattr(failure.value, 'code'):
+                self.make_reply(failure.value.code, server_address)
+            else:
+                self.write(b'\x00')
 
         self.transport.loseConnection()
 
@@ -125,7 +124,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             return defer.fail(errors.ParsingError())
 
         ver, nmethods = struct.unpack('!BB', data[0:2])
-        self.check_version(ver).addErrback(self.on_error)
+
+        d = self.check_version(ver).addErrback(self.on_error)
 
         methods = struct.unpack('!%dB' % nmethods, data[2:2 + nmethods])
         self._auth_method = get_method(methods, self._auth_types)
@@ -200,7 +200,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 d = self.cmd_connect(domain, port)
                 d.addErrback(self.on_error)
 
-            return self.parse_connect(atyp, data).addCallbacks(success, self.on_error)
+            return self.parse_address(atyp, data).addCallback(success)
 
         if cmd == constants.CMD_BIND:
             return self.cmd_bind()
@@ -210,7 +210,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         return defer.fail(errors.CommandNotSupported(f"Not implement {cmd} yet!"))
 
-    def parse_connect(self, atype: int, data: bytes):
+    def parse_address(self, atype: int, data: bytes):
         cur = 4
         if atype == constants.ATYP_DOMAINNAME:
             domain_len = ord(data[cur:cur + 1])
@@ -286,9 +286,10 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 b''.join([socks_domain_host(address.host), struct.pack('!H', address.port)])
             ])
         else:
-            response = struct.pack('!4B', self._version, rep)
-            self.write(response)
-            raise errors.AddressNotSupported()
+            response = b''.join([
+                struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_IPV4),
+                b''.join([socket.inet_aton('0.0.0.0'), struct.pack('!H', address.port)])
+            ])
 
         self.write(response)
 
@@ -298,4 +299,3 @@ class RemoteSocksV5ServerFactory(protocol.Factory):
 
     def __init__(self):
         self.config = ConfigFactory.get_config()
-        self.timeout = self.config.getTimeOut()
