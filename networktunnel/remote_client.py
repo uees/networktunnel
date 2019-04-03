@@ -1,5 +1,6 @@
 from twisted.internet import protocol
 
+from . import constants
 from .logger import LogMixin
 
 
@@ -40,39 +41,47 @@ class RemoteTCPClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class RemoteTCPClientFactory(protocol.ClientFactory):
-    protocol = RemoteTCPClient
-
-    def __init__(self, server):
+class RemoteBindProxyClient(protocol.Protocol, LogMixin):
+    def __init__(self, factory, server):
+        self.factory = factory
         self.server = server
-
-    def clientConnectionFailed(self, connector, reason):
-        self.server.transport.loseConnection()
-
-
-class RemoteBindClient(protocol.Protocol, LogMixin):
-    def __init__(self, server):
-        self.server = server
+        self.server.client = self
+        self.peer_address = None
+        self.host_address = None
 
     def connectionMade(self):
-        self.factory.num_protocols += 1
+        self.peer_address = self.transport.getPeer()
+        self.host_address = self.transport.getHost()
+        self.log(f'wait connect from {self.peer_address}')
+
+        self.transport.registerProducer(self.server.transport, True)
+        self.server.transport.registerProducer(self.transport, True)
+
+        self.server.transport.resumeProducing()
+
+        # 第二个回复在预期的传入连接成功或失败之后发生
+        self.server.make_reply(constants.SOCKS5_GRANTED, address=self.peer_address)
 
     def connectionLost(self, reason):
-        if self.factory.num_protocols > 0:
-            self.factory.num_protocols -= 1
+        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
+        self.server.client = None
+        self.server.transport.loseConnection()
 
     def dataReceived(self, data):
+        self.server.write(data)
+
+    def write(self, data):
         self.transport.write(data)
-
-
-class RemoteBindClientFactory(protocol.ServerFactory):
-    protocol = RemoteBindClient
-
-    def __init__(self, server):
-        self.server = server
-        self.reactor = server.factory.reactor
-        self.num_protocols = 0
 
 
 class RemoteUdpClient(protocol.Protocol, LogMixin):
     pass
+
+
+class RemoteBindClientFactory(protocol.ServerFactory):
+
+    def __init__(self, server):
+        self.server = server
+
+    def buildProtocol(self, addr):
+        return RemoteBindProxyClient(self, self.server)

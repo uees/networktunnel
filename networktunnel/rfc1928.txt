@@ -328,6 +328,14 @@ BIND
    primary connection is established using CONNECT.  In is expected that
    a SOCKS server will use DST.ADDR and DST.PORT in evaluating the BIND
    request.
+
+   It is expected that the client side of an application protocol will
+   use the BIND request only to establish secondary connections after a
+   primary connection is established using CONNECT.  * DST.ADDR must be
+   the address of the primary connection's destination.  DST.PORT should
+   be the requested port (or 0 for a random, unused port). *  It is
+   expected that a SOCKS server will use DST.ADDR and DST.PORT in
+   evaluating the BIND request.
    
    客户端的应用程序在使用 CONNECT 建立了主要连接之后将只使用 BIND 请求去建立次要连接。
    SOCKS 服务器将使用 DST.ADDR 和 DST.PORT 确认这个 BIND 请求

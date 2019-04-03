@@ -2,17 +2,17 @@
 import socket
 import struct
 
-from twisted.internet import protocol, defer
-from twisted.internet.address import IPv4Address, IPv6Address, HostnameAddress
+from twisted.internet import defer, protocol
+from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
+from twisted.internet.endpoints import connectProtocol, serverFromString, clientFromString
 from twisted.protocols import policies
-from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 
 from config import ConfigFactory
 
-from .remote_client import RemoteTCPClient, RemoteTCPClientFactory
-from . import errors, constants
-from .helpers import get_method, socks_domain_host, parse_address
+from . import constants, errors
+from .helpers import get_method, parse_address, socks_domain_host
 from .logger import LogMixin
+from .remote_client import RemoteTCPClient, RemoteBindClientFactory
 
 
 class State:
@@ -21,9 +21,9 @@ class State:
     AUTH = 0x02  # 认证中
     COMMAND = 0x03  # 解析命令
     WAITING_CONNECTION = 0x04
-    TCP_PIPELINE = 0x05  # 建立 connect TCP 管道传输
-    BIND_PIPELINE = 0x06  # bind 成功
-    UDP_PIPELINE = 0x07
+    ESTABLISHED = 0x05
+    DISCONNECTED = 0x06  # bind 成功
+    ERROR = 0xff
 
 
 class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
@@ -43,10 +43,13 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.peer_address = self.transport.getPeer()
         self.host_address = self.transport.getHost()
         self.log('Connection made', self.peer_address)
+        self.factory.num_protocols += 1
         # self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
         self.log('Connection time', self.peer_address)
+        if self.factory.num_protocols > 0:
+            self.factory.num_protocols -= 1
         super().timeoutConnection()
 
     def connectionLost(self, reason):
@@ -66,7 +69,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         def reset_timeout(ignored):
             self.resetTimeout()
 
-        if self.is_state(State.TCP_PIPELINE):
+        if self.is_state(State.ESTABLISHED):
             self.client.write(data)
 
         elif self.is_state(State.METHODS):
@@ -181,7 +184,6 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         d = self.check_version(ver)
 
         def do_auth(ignored):
-
             token = data[2:2 + token_length].decode()
 
             dd = auth_token(token)
@@ -198,11 +200,11 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         return d
 
-    #    +----+-----+-------+------+----------+----------+
-    #    |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
-    #    +----+-----+-------+------+----------+----------+
-    #    | 1  |  1  | X'00' |  1   | Variable |    2     |
-    #    +----+-----+-------+------+----------+----------+
+    # +----+-----+-------+------+----------+----------+
+    # |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+    # +----+-----+-------+------+----------+----------+
+    # | 1  |  1  | X'00' |  1   | Variable |    2     |
+    # +----+-----+-------+------+----------+----------+
     #
     # +----+-----+-------+------+----------+----------+
     # | VER | REP | RSV | ATYP | BND.ADDR | BND.PORT |
@@ -224,7 +226,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 return self.do_connect(domain, port)  # defer
 
             if cmd == constants.CMD_BIND:
-                return self.do_bind()  # defer
+                domain, port = parse_address(atyp, data)
+                return self.do_bind(domain, port)  # defer
 
             if cmd == constants.CMD_UDP_ASSOCIATE:
                 return self.do_udp_associate()  # defer
@@ -245,12 +248,12 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         # Don't read anything from the connecting client until we have somewhere to send it to.
         self.transport.pauseProducing()
 
-        point = TCP4ClientEndpoint(self.factory.reactor, domain, port)
+        point = clientFromString(self.factory.reactor, f"tcp:host={domain}:port={port}")
         d = connectProtocol(point, RemoteTCPClient(self))
 
         def success(result):
             self.log("connect to {}, {}".format(domain, port))
-            self.set_state(State.TCP_PIPELINE)
+            self.set_state(State.ESTABLISHED)
             # self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
@@ -267,13 +270,25 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         return d
 
-    def do_bind(self):
+    def do_bind(self, host: str, port: int):
         """
         If using BIND, the Socks client is now in BoundWaitingForConnection state.
         This means that the remote proxy server is waiting for a remote connection to the bound port.
         :return: defer
         """
-        return defer.fail(errors.CommandNotSupported())
+        self.transport.pauseProducing()
+
+        def first_reply(listening_port):
+            # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
+            self.set_state(State.WAITING_CONNECTION)
+            self.make_reply(constants.SOCKS5_SUCCEEDED, listening_port.getHost())
+
+        endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
+        # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
+        d = endpoint.listen(RemoteBindClientFactory(self))
+        d.addCallback(first_reply)
+
+        return d
 
     def do_udp_associate(self):
         """
@@ -321,5 +336,6 @@ class RemoteSocksV5ServerFactory(protocol.Factory):
     protocol = RemoteSocksV5Server
 
     def __init__(self, reactor):
+        self.num_protocols = 0
         self.reactor = reactor
         self.config = ConfigFactory.get_config()
