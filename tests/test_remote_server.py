@@ -2,6 +2,7 @@
 import socket
 import struct
 
+from twisted.internet import reactor
 from twisted.trial import unittest
 from twisted.test import proto_helpers
 
@@ -16,7 +17,7 @@ class RemoteSocksV5ServerTestCase(unittest.TestCase):
         # from twisted.internet.base import DelayedCall
         # DelayedCall.debug = True
 
-        factory = RemoteSocksV5ServerFactory()
+        factory = RemoteSocksV5ServerFactory(reactor)
         self.proto = factory.buildProtocol(("127.0.0.1", 1080))
         self.tr = proto_helpers.StringTransport()
         self.proto.makeConnection(self.tr)
@@ -78,7 +79,7 @@ class RemoteSocksV5ServerTestCase(unittest.TestCase):
 
         request = b''.join([
             struct.pack('!4B', 5, constants.CMD_CONNECT, constants.RSV, constants.ATYP_IPV4),
-            b''.join([socket.inet_aton('127.0.0.1'), struct.pack('!H', 49888)])
+            b''.join([socket.inet_aton('127.0.0.1'), struct.pack('!H', 6000)])
         ])
 
         self.proto.dataReceived(request)

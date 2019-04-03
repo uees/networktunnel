@@ -9,8 +9,9 @@ from twisted.internet.endpoints import TCP4ClientEndpoint, connectProtocol
 
 from config import ConfigFactory
 
+from .remote_client import RemoteTCPClient, RemoteTCPClientFactory
 from . import errors, constants
-from .helpers import get_method, socks_domain_host
+from .helpers import get_method, socks_domain_host, parse_address
 from .logger import LogMixin
 
 
@@ -26,7 +27,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def __init__(self):
         self.client = None
-        self.buff = b''
+        self.peer_address = None
+        self.host_address = None
 
         self._version = constants.SOCKS5_VER
         self._state = self.STATE_METHODS
@@ -35,15 +37,17 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self._pipe_type = None
 
     def connectionMade(self):
-        self.log('Connection made', self.transport.getPeer())
+        self.peer_address = self.transport.getPeer()
+        self.host_address = self.transport.getHost()
+        self.log('Connection made', self.peer_address)
         # self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
-        self.log('Connection time', self.transport.getPeer())
+        self.log('Connection time', self.peer_address)
         super().timeoutConnection()
 
     def connectionLost(self, reason):
-        self.log('Connection lost', self.transport.getPeer(), reason.getErrorMessage())
+        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
 
         # self.setTimeout(None)
 
@@ -75,7 +79,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 self.on_error(errors.LoginAuthenticationFailed())
 
         elif self.is_state(self.STATE_COMMAND):
-            d = self.parse_cmd(data)
+            d = self.parse_command(data)
             d.addErrback(self.on_error)
 
     def write(self, data):
@@ -106,7 +110,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def check_version(self, ver: int):
         if ver != self._version:
-            self.log(f'Wrong version from {self.transport.getPeer()}')
+            self.log(f'Wrong version from {self.peer_address}')
             return defer.fail(errors.InvalidServerVersion())
 
         return defer.succeed(True)
@@ -202,65 +206,37 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
     # +----+-----+-------+------+----------+----------+
     # |  1 |  1  | X'00' |  1   | Variable | 2       |
     # +----+-----+-------+------+----------+----------+
-    def parse_cmd(self, data: bytes):
+    def parse_command(self, data: bytes):
+        """ 解析命令 """
         if len(data) < 4:
             return defer.fail(errors.ParsingError())
 
         ver, cmd, rsv, atyp = struct.unpack('!4B', data[0:4])
         d = self.check_version(ver)
 
-        def do_parse(ignored):
+        def assign_command(ignored):
+            """ 分配命令 """
             if cmd == constants.CMD_CONNECT:
-                def success(address):
-                    domain, port = address
-                    return self.cmd_connect(domain, port)  # defer
-
-                return self.parse_address(atyp, data).addCallback(success)  # defer
+                domain, port = parse_address(atyp, data)  # maybe raise AddressNotSupported
+                return self.do_connect(domain, port)  # defer
 
             if cmd == constants.CMD_BIND:
-                return self.cmd_bind()  # defer
+                return self.do_bind()  # defer
 
             if cmd == constants.CMD_UDP_ASSOCIATE:
-                return self.cmd_udp()  # defer
+                return self.do_udp_associate()  # defer
 
             raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
 
-        d.addCallback(do_parse)
+        d.addCallback(assign_command)
 
         return d
 
-    def parse_address(self, atype: int, data: bytes):
-        cur = 4
-        if atype == constants.ATYP_DOMAINNAME:
-            domain_len = ord(data[cur:cur + 1])
-            cur += 1
-
-            domain = data[cur:cur + domain_len].decode()
-            cur += domain_len
-
-        elif atype == constants.ATYP_IPV4:
-            domain = socket.inet_ntop(socket.AF_INET, data[cur:cur + 4])
-            cur += 4
-
-        elif atype == constants.ATYP_IPV6:
-            domain = socket.inet_ntop(socket.AF_INET6, data[cur:cur + 16])
-            cur += 16
-
-        else:
-            return defer.fail(errors.AddressNotSupported("Unknown address type!"))
-
-        port = struct.unpack('!H', data[cur:cur + 2])[0]
-
-        return defer.succeed((domain, port))
-
-    def cmd_connect(self, domain: str, port: int):
-        from twisted.internet import reactor
-        from .remote_client import RemoteTCPClient
-
+    def do_connect(self, domain: str, port: int):
         # Don't read anything from the connecting client until we have somewhere to send it to.
         self.transport.pauseProducing()
 
-        point = TCP4ClientEndpoint(reactor, domain, port)
+        point = TCP4ClientEndpoint(self.factory.reactor, domain, port)
         d = connectProtocol(point, RemoteTCPClient(self))
 
         def success(result):
@@ -271,7 +247,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()
 
-            self.make_reply(constants.SOCKS5_GRANTED, address=self.client.getHost())
+            self.make_reply(constants.SOCKS5_GRANTED, address=self.client.host_address)
 
         d.addCallback(success)
 
@@ -282,10 +258,10 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         return d
 
-    def cmd_bind(self):
+    def do_bind(self):
         return defer.fail(errors.CommandNotSupported())
 
-    def cmd_udp(self):
+    def do_udp_associate(self):
         return defer.fail(errors.CommandNotSupported())
 
     def send_data(self, data):
@@ -325,5 +301,6 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 class RemoteSocksV5ServerFactory(protocol.Factory):
     protocol = RemoteSocksV5Server
 
-    def __init__(self):
+    def __init__(self, reactor):
+        self.reactor = reactor
         self.config = ConfigFactory.get_config()

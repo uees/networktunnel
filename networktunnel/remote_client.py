@@ -4,15 +4,16 @@ from .logger import LogMixin
 
 
 class RemoteTCPClient(protocol.Protocol, LogMixin):
-    from .remote_server import RemoteSocksV5Server
 
-    def __init__(self, server: RemoteSocksV5Server):
+    def __init__(self, server):
         self.server = server
         self.server.client = self
         self.peer_address = None
+        self.host_address = None
 
     def connectionMade(self):
         self.peer_address = self.transport.getPeer()
+        self.host_address = self.transport.getHost()
         self.log('Connection made', self.peer_address)
 
         # Wire this and the peer transport together to enable

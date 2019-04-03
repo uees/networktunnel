@@ -10,7 +10,7 @@ def main():
 
     log.startLogging(sys.stdout)
     endpoint = TCP4ServerEndpoint(reactor, 1080)
-    endpoint.listen(RemoteSocksV5ServerFactory())
+    endpoint.listen(RemoteSocksV5ServerFactory(reactor))
     reactor.run()
 
 
