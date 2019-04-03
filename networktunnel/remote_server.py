@@ -15,15 +15,18 @@ from .helpers import get_method, socks_domain_host, parse_address
 from .logger import LogMixin
 
 
-class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
-    STATE_IGNORED = 0x00
-    STATE_METHODS = 0x01  # 协商认证方法
-    STATE_AUTH = 0x02  # 认证中
-    STATE_COMMAND = 0x03  # 解析命令
-    STATE_PIPELINE = 0x05  # 建立管道传输
+class State:
+    IGNORED = 0x00
+    METHODS = 0x01  # 协商认证方法
+    AUTH = 0x02  # 认证中
+    COMMAND = 0x03  # 解析命令
+    WAITING_CONNECTION = 0x04
+    TCP_PIPELINE = 0x05  # 建立 connect TCP 管道传输
+    BIND_PIPELINE = 0x06  # bind 成功
+    UDP_PIPELINE = 0x07
 
-    PIPE_TCP = 0x01
-    PIPE_UDP = 0x03
+
+class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def __init__(self):
         self.client = None
@@ -31,7 +34,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.host_address = None
 
         self._version = constants.SOCKS5_VER
-        self._state = self.STATE_METHODS
+        self._state = State.METHODS
         self._auth_types = [constants.AUTH_ANONYMOUS, constants.AUTH_TOKEN]
         self._auth_method = None
         self._pipe_type = None
@@ -63,14 +66,14 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         def reset_timeout(ignored):
             self.resetTimeout()
 
-        if self.is_state(self.STATE_PIPELINE):
+        if self.is_state(State.TCP_PIPELINE):
             self.client.write(data)
 
-        elif self.is_state(self.STATE_METHODS):
+        elif self.is_state(State.METHODS):
             d = self.negotiate_methods(data)
             d.addCallbacks(reset_timeout, self.on_error)
 
-        elif self.is_state(self.STATE_AUTH):
+        elif self.is_state(State.AUTH):
             if self._auth_method == constants.AUTH_TOKEN:
                 d = self.auth_token(data)
                 d.addCallbacks(reset_timeout, self.on_error)
@@ -78,7 +81,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             else:
                 self.on_error(errors.LoginAuthenticationFailed())
 
-        elif self.is_state(self.STATE_COMMAND):
+        elif self.is_state(State.COMMAND):
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
@@ -88,7 +91,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.transport.write(data)
 
     def on_error(self, failure):
-        self.set_state(self.STATE_IGNORED)
+        self.set_state(State.IGNORED)
 
         server_address = self.transport.getHost()
 
@@ -145,9 +148,9 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 raise errors.NoAcceptableMethods()
 
             if self._auth_method == constants.AUTH_ANONYMOUS:
-                self.set_state(self.STATE_COMMAND)
+                self.set_state(State.COMMAND)
             else:
-                self.set_state(self.STATE_AUTH)
+                self.set_state(State.AUTH)
 
             self.write(struct.pack('!BB', self._version, self._auth_method))
 
@@ -184,7 +187,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             dd = auth_token(token)
 
             def on_success(result):
-                self.set_state(self.STATE_COMMAND)
+                self.set_state(State.COMMAND)
                 self.transport.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
 
             dd.addCallback(on_success)
@@ -233,6 +236,12 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         return d
 
     def do_connect(self, domain: str, port: int):
+        """
+        If using CONNECT, the client is now in the established state.
+        :param domain:
+        :param port:
+        :return:
+        """
         # Don't read anything from the connecting client until we have somewhere to send it to.
         self.transport.pauseProducing()
 
@@ -241,7 +250,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         def success(result):
             self.log("connect to {}, {}".format(domain, port))
-            self.set_state(self.STATE_PIPELINE)
+            self.set_state(State.TCP_PIPELINE)
             # self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
@@ -259,9 +268,19 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         return d
 
     def do_bind(self):
+        """
+        If using BIND, the Socks client is now in BoundWaitingForConnection state.
+        This means that the remote proxy server is waiting for a remote connection to the bound port.
+        :return: defer
+        """
         return defer.fail(errors.CommandNotSupported())
 
     def do_udp_associate(self):
+        """
+        If using Associate, the Socks client is now Established. And the proxy server is now accepting UDP packets at the
+        given bound port. This initial Socks TCP connection must remain open for the UDP relay to continue to work.
+        :return:
+        """
         return defer.fail(errors.CommandNotSupported())
 
     def send_data(self, data):

@@ -48,3 +48,31 @@ class RemoteTCPClientFactory(protocol.ClientFactory):
 
     def clientConnectionFailed(self, connector, reason):
         self.server.transport.loseConnection()
+
+
+class RemoteBindClient(protocol.Protocol, LogMixin):
+    def __init__(self, server):
+        self.server = server
+
+    def connectionMade(self):
+        self.factory.num_protocols += 1
+
+    def connectionLost(self, reason):
+        if self.factory.num_protocols > 0:
+            self.factory.num_protocols -= 1
+
+    def dataReceived(self, data):
+        self.transport.write(data)
+
+
+class RemoteBindClientFactory(protocol.ServerFactory):
+    protocol = RemoteBindClient
+
+    def __init__(self, server):
+        self.server = server
+        self.reactor = server.factory.reactor
+        self.num_protocols = 0
+
+
+class RemoteUdpClient(protocol.Protocol, LogMixin):
+    pass
