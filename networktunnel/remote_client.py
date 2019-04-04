@@ -34,6 +34,7 @@ class RemoteProxyClient(protocol.Protocol, LogMixin):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
         self.server.client = None
         self.server.transport.loseConnection()
+        self.server = None
 
     def dataReceived(self, data):
         self.server.write(data)  # 转发数据

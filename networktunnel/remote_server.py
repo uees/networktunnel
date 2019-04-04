@@ -58,6 +58,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
 
         # self.setTimeout(None)
+        if self.factory.num_protocols > 0:
+            self.factory.num_protocols -= 1
 
         # Remove client
         if self.client is not None and self.client.transport:
@@ -98,8 +100,6 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
     def on_error(self, failure):
         self.set_state(State.IGNORED)
 
-        server_address = self.transport.getHost()
-
         # failure.value is the exception instance responsible for this failure.
         if isinstance(failure, Exception):
             error = failure
@@ -110,9 +110,9 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             self.write(struct.pack('!BB', self._version, error.code))
         else:
             if hasattr(error, 'code'):
-                self.make_reply(error.code, server_address)
+                self.make_reply(error.code, self.host_address)
             else:
-                self.write(b'\x00')
+                self.write(b'\xff')
 
         self.transport.loseConnection()
 
