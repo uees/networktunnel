@@ -1,5 +1,6 @@
-from config import ConfigFactory
 from twisted.python import log
+
+from config import ConfigFactory
 
 
 class LogMixin:

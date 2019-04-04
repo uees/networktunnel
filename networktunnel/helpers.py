@@ -3,10 +3,23 @@ import struct
 
 from . import constants, errors
 
-
-# | 版本号(1字节) | 命令(1字节) | 保留(1字节) | 请求类型(1字节) | 地址(不定长) | 端口(2字节) |
-# | ------------ | ---------- | ---------- | ------------- | ----------- | ---------- |
-# | 固定为5       |            |            |             | 第1个字节为域名的长度 | -------|
+# +----+-----+-------+------+----------+----------+
+# |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+# +----+-----+-------+------+----------+----------+
+# | 1  |  1  | X'00' |  1   | Variable |    2     |
+# +----+-----+-------+------+----------+----------+
+#
+# +----+-----+-------+------+----------+----------+
+# | VER | REP | RSV | ATYP | BND.ADDR | BND.PORT |
+# +----+-----+-------+------+----------+----------+
+# |  1 |  1  | X'00' |  1   | Variable | 2       |
+# +----+-----+-------+------+----------+----------+
+#
+# +----+------+------+----------+----------+----------+
+# | RSV | FRAG | ATYP | DST.ADDR | DST.PORT | DATA    |
+# +----+------+------+----------+----------+----------+
+# |  2 |  1   |   1  | Variable |   2      | Variable |
+# +----+------+------+----------+----------+----------+
 
 
 def socks_domain_host(host: (str, bytes)) -> bytes:
@@ -14,20 +27,20 @@ def socks_domain_host(host: (str, bytes)) -> bytes:
     return b''.join((struct.pack('!B', len(host)), host))
 
 
-def parse_address(atype: int, data: bytes) -> tuple:
+def parse_address(atyp: int, data: bytes) -> tuple:
     cur = 4
-    if atype == constants.ATYP_DOMAINNAME:
+    if atyp == constants.ATYP_DOMAINNAME:
         domain_len = ord(data[cur:cur + 1])
         cur += 1
 
         domain = data[cur:cur + domain_len].decode()
         cur += domain_len
 
-    elif atype == constants.ATYP_IPV4:
+    elif atyp == constants.ATYP_IPV4:
         domain = socket.inet_ntop(socket.AF_INET, data[cur:cur + 4])
         cur += 4
 
-    elif atype == constants.ATYP_IPV6:
+    elif atyp == constants.ATYP_IPV6:
         domain = socket.inet_ntop(socket.AF_INET6, data[cur:cur + 16])
         cur += 16
 
@@ -37,6 +50,41 @@ def parse_address(atype: int, data: bytes) -> tuple:
     port = struct.unpack('!H', data[cur:cur + 2])[0]
 
     return domain, port
+
+
+def parse_udp_frame(data: bytes) -> tuple:
+    # rsv 保留字 忽略
+    rsv, frag, atyp = struct.unpack('!HBB', data[0:4])
+
+    host, port = parse_address(atyp, data)
+
+    if atyp == constants.ATYP_DOMAINNAME:
+        addr_length = ord(data[4:5]) + 1
+    elif atyp == constants.ATYP_IPV4:
+        addr_length = 4
+    elif atyp == constants.ATYP_IPV6:
+        addr_length = 16
+    else:
+        raise errors.AddressNotSupported("Unknown address type!")
+
+    data_buff_index = 4 + addr_length + 2
+    return frag, atyp, host, port, data[data_buff_index:]
+
+
+def create_udp_frame(frag: int, atyp: int, host: (str, bytes), port: int, data: bytes) -> bytes:
+    if atyp == constants.ATYP_DOMAINNAME:
+        addr = socks_domain_host(host)
+    elif atyp == constants.ATYP_IPV4 or atyp == constants.ATYP_IPV6:
+        addr = host
+    else:
+        raise errors.AddressNotSupported("Unknown address type!")
+
+    return b''.join([
+        struct.pack('!HBB', 0, frag, atyp),
+        addr,
+        struct.pack('!H', port),
+        data
+    ])
 
 
 def to_bytes(s: (str, bytes)) -> bytes:

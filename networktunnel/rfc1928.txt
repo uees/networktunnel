@@ -319,26 +319,21 @@ BIND
    status reports, but may use a server-to-client connection for
    transferring data on demand (e.g. LS, GET, PUT).
    
-   BIND 请求用在协议中需要客户端接收服务器的连接的时候。FTP 就是一个容易理解的例子,
-   它使用一个主连接 client-to-server 用于 commands 和报告 status，在需要的时候(e.g. LS, GET, PUT)
-   能使用一个 server-to-client 的连接去传输数据
+   BIND 请求用在协议中需要客户端接收服务端的连接的时候。FTP 就是一个容易理解的例子,
+   它使用一个主连接 client-to-server 用于发送命令和报告状态，在需要的时候(e.g. LS, GET, PUT)
+   使用一个 server-to-client 的连接去传输数据。
 
    It is expected that the client side of an application protocol will
    use the BIND request only to establish secondary connections after a
-   primary connection is established using CONNECT.  In is expected that
-   a SOCKS server will use DST.ADDR and DST.PORT in evaluating the BIND
-   request.
-
-   It is expected that the client side of an application protocol will
-   use the BIND request only to establish secondary connections after a
-   primary connection is established using CONNECT.  * DST.ADDR must be
+   primary connection is established using CONNECT.  DST.ADDR must be
    the address of the primary connection's destination.  DST.PORT should
-   be the requested port (or 0 for a random, unused port). *  It is
+   be the requested port (or 0 for a random, unused port).  It is
    expected that a SOCKS server will use DST.ADDR and DST.PORT in
    evaluating the BIND request.
    
-   客户端的应用程序在使用 CONNECT 建立了主要连接之后将只使用 BIND 请求去建立次要连接。
-   SOCKS 服务器将使用 DST.ADDR 和 DST.PORT 确认这个 BIND 请求
+   建议应用协议的客户端只有在使用 CONNECT 建立了主要连接之后才可以使用 BIND 命令去建立次要连接。
+   DST.ADDR 必须是主连接的终点(即Socks 服务器), DST.PORT 应该是被请求的端口(or 0 for a random, unused port)
+   建议 SOCKS 服务器使用 DST.ADDR 和 DST.PORT 来评价 BIND 请求。
 
    Two replies are sent from the SOCKS server to the client during a
    BIND operation.  The first is sent after the server creates and binds
@@ -352,9 +347,10 @@ BIND
    
    在绑定操作期间，从SOCKS服务器向客户机发送两个响应。
    第一个是在服务器创建并绑定一个新的套接字之后发送的。
-   BND.PORT 字段是 SOCKS 服务器分配给传入连接的监听端口，
-   BND.ADDR 字段是相关联的 IP。客户机将使用这些信息通知 (主连接或控制连接) 约定地址的应用程序服务器。
+   BND.PORT 字段是 SOCKS 服务器分配的用于监听传入连接的端口，
+   BND.ADDR 字段是相关联的 IP。客户机将使用这些信息来告诉 (通过主连接或控制连接) 应用服务端连接的汇接点。
    第二个应答仅在预期的传入连接成功或失败之后发生。
+   在第二个应答中，BND.PORT 和 BND.ADDR 字段包含了连上来的主机 IP 地址和端口号。
 
 
 

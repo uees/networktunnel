@@ -1,10 +1,11 @@
 from twisted.internet import protocol
 
-from . import constants
+from .constants import SOCKS5_GRANTED
+from .helpers import create_udp_frame, parse_udp_frame
 from .logger import LogMixin
 
 
-class RemoteTCPClient(protocol.Protocol, LogMixin):
+class RemoteProxyClient(protocol.Protocol, LogMixin):
 
     def __init__(self, server):
         self.server = server
@@ -59,8 +60,10 @@ class RemoteBindProxyClient(protocol.Protocol, LogMixin):
 
         self.server.transport.resumeProducing()
 
+        from networktunnel.remote_server import State
+        self.server.set_state(State.ESTABLISHED)
         # 第二个回复在预期的传入连接成功或失败之后发生
-        self.server.make_reply(constants.SOCKS5_GRANTED, address=self.peer_address)
+        self.server.make_reply(SOCKS5_GRANTED, address=self.peer_address)
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
@@ -74,8 +77,61 @@ class RemoteBindProxyClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class RemoteUdpClient(protocol.Protocol, LogMixin):
-    pass
+class RemoteUdpProxyClient(protocol.DatagramProtocol, LogMixin):
+    def __init__(self, server, addr, atyp):
+        self.server = server
+        self.server.client = self
+
+        self.origin_addr = addr
+        self.origin_atyp = atyp
+        self.host_address = None
+
+        self.allowed_address = {
+            self.origin_addr: self.origin_atyp
+        }
+
+    def startProtocol(self):
+        self.host_address = self.transport.getHost()
+
+    def datagramReceived(self, data, addr):
+        if addr not in self.allowed_address:
+            return
+
+        if addr == self.origin_addr:
+            self.receive_from_origin(data)
+        else:
+            self.receive_from_target(data, addr)
+
+    def receive_from_target(self, data, addr):
+        # 封包 -> 发往客户端, data 未加密
+        host, port = addr
+        atyp = self.allowed_address.get(addr)
+
+        data = create_udp_frame(0, atyp, host, port, data)
+
+        # todo 加密
+        self.transport.write(data, self.origin_addr)
+
+    def receive_from_origin(self, data):
+        # todo 首先解密
+        # 解包 -> 发往目标服务器
+        frag, atyp, host, port, buff = parse_udp_frame(data)
+
+        remote_addr = (host, port)
+
+        if remote_addr not in self.allowed_address:
+            self.allowed_address.update(remote_addr=atyp)
+
+        if frag != 0:
+            # todo 分片
+            return  # 这里直接丢弃
+
+        # 不加密直接发给目标服务器
+        self.transport.write(data, remote_addr)
+
+    def connectionRefused(self):
+        # 如果没有服务器监听我们发送到的地址，则调用。
+        pass
 
 
 class RemoteBindClientFactory(protocol.ServerFactory):

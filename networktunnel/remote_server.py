@@ -4,7 +4,8 @@ import struct
 
 from twisted.internet import defer, protocol
 from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
-from twisted.internet.endpoints import connectProtocol, serverFromString, clientFromString
+from twisted.internet.endpoints import (clientFromString, connectProtocol,
+                                        serverFromString)
 from twisted.protocols import policies
 
 from config import ConfigFactory
@@ -12,7 +13,8 @@ from config import ConfigFactory
 from . import constants, errors
 from .helpers import get_method, parse_address, socks_domain_host
 from .logger import LogMixin
-from .remote_client import RemoteTCPClient, RemoteBindClientFactory
+from .remote_client import (RemoteBindClientFactory, RemoteProxyClient,
+                            RemoteUdpProxyClient)
 
 
 class State:
@@ -221,16 +223,15 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         def assign_command(ignored):
             """ 分配命令 """
+            domain, port = parse_address(atyp, data)  # maybe raise AddressNotSupported
             if cmd == constants.CMD_CONNECT:
-                domain, port = parse_address(atyp, data)  # maybe raise AddressNotSupported
                 return self.do_connect(domain, port)  # defer
 
             if cmd == constants.CMD_BIND:
-                domain, port = parse_address(atyp, data)
                 return self.do_bind(domain, port)  # defer
 
             if cmd == constants.CMD_UDP_ASSOCIATE:
-                return self.do_udp_associate()  # defer
+                return self.do_udp_associate(domain, port, atyp)  # defer
 
             raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
 
@@ -241,17 +242,17 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
     def do_connect(self, domain: str, port: int):
         """
         If using CONNECT, the client is now in the established state.
-        :param domain:
-        :param port:
-        :return:
+        :param domain: 服务端地址
+        :param port: 服务端端口
+        :return: defer
         """
         # Don't read anything from the connecting client until we have somewhere to send it to.
         self.transport.pauseProducing()
 
         point = clientFromString(self.factory.reactor, f"tcp:host={domain}:port={port}")
-        d = connectProtocol(point, RemoteTCPClient(self))
+        d = connectProtocol(point, RemoteProxyClient(self))
 
-        def success(result):
+        def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
             self.set_state(State.ESTABLISHED)
             # self.setTimeout(None)  # 取消超时
@@ -274,6 +275,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         """
         If using BIND, the Socks client is now in BoundWaitingForConnection state.
         This means that the remote proxy server is waiting for a remote connection to the bound port.
+        :param host: 建议 SOCKS 服务器使用监听地址
+        :param port: 建议 SOCKS 服务器使用监听端口
         :return: defer
         """
         self.transport.pauseProducing()
@@ -281,7 +284,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         def first_reply(listening_port):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
             self.set_state(State.WAITING_CONNECTION)
-            self.make_reply(constants.SOCKS5_SUCCEEDED, listening_port.getHost())
+            self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
         # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
@@ -290,16 +293,29 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         return d
 
-    def do_udp_associate(self):
+    def do_udp_associate(self, host: str, port: int, atyp: int):
         """
         If using Associate, the Socks client is now Established. And the proxy server is now accepting UDP packets at the
         given bound port. This initial Socks TCP connection must remain open for the UDP relay to continue to work.
-        :return:
+        :param host: 客户端希望用于发生 UDP 数据报的 ip 地址
+        :param port: 客户端希望用于发生 UDP 数据报的端口
+        :param atyp: 地址类型
+        :return: defer
         """
-        return defer.fail(errors.CommandNotSupported())
+        d = defer.Deferred()
 
-    def send_data(self, data):
-        pass
+        # fix :: 0.0.0.0
+        if host == socket.inet_aton('0.0.0.0') or host == socket.inet_pton(socket.AF_INET6, '::'):
+            host = self.peer_address.host
+
+        def reply(ignored):
+            client = RemoteUdpProxyClient(self, addr=(host, port), atyp=atyp)
+            listening_port = self.factory.reactor.listenUDP(0, client)
+            self.set_state(State.ESTABLISHED)
+            self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
+
+        d.addCallback(reply)
+        return d
 
     def is_state(self, state):
         return self._state == state
@@ -316,7 +332,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         elif isinstance(address, IPv6Address):
             response = b''.join([
                 struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_IPV6),
-                b''.join([socket.inet_aton(address.host), struct.pack('!H', address.port)])
+                b''.join([socket.inet_pton(socket.AF_INET6, address.host), struct.pack('!H', address.port)])
             ])
         elif isinstance(address, HostnameAddress):
             response = b''.join([
