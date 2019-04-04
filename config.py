@@ -21,8 +21,8 @@ class ConfigFactory(object):
     #    -items(section)        得到该section的所有键值对
     #    -get(section,option)      得到section中option的值，返回为string类型
     #    -getint(section,option)    得到section中option的值，返回为int类型，还有相应的getboolean()和getfloat() 函数。
-    def __init__(self):
-        self.parser = get_config(os.path.join(BASE_DIR, 'default.conf'))
+    def __init__(self, default='default.conf'):
+        self.parser = get_config(os.path.join(BASE_DIR, default))
 
     @classmethod
     def get_config(cls):

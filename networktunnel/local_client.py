@@ -1,6 +1,14 @@
+import os
+import struct
+
 from twisted.internet import protocol
 
+from config import get_config
+from settings import BASE_DIR
+from . import constants, errors
 from .logger import LogMixin
+
+cfg = get_config(os.path.join(BASE_DIR, 'local.conf'))
 
 
 class ProxyClient(protocol.Protocol, LogMixin):
@@ -33,6 +41,8 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.transport.registerProducer(self.server.transport, True)
         self.server.transport.registerProducer(self.transport, True)
 
+        self.sendInitialHandshake()
+
     def connectionLost(self, reason):
         self.set_state(self.STATE_Disconnected)
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
@@ -44,7 +54,47 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def dataReceived(self, data):
         # data = self.server.factory.crypto.decrypt(data)
-        self.server.transport.write(data)
+
+        if self.is_state(self.STATE_Established):
+            self.server.transport.write(data)
+
+        elif self.is_state(self.STATE_SentInitialHandshake):
+            self.receiveInitialHandshakeResponse(data)
+
+        elif self.is_state(self.STATE_SentAuthentication):
+            self.receivedAuthenticationResponse(data)
+
+    def sendInitialHandshake(self):
+        request = struct.pack('!BBB', constants.SOCKS5_VER, 1, constants.AUTH_TOKEN)
+        self.write(request)
+        self.set_state(self.STATE_SentInitialHandshake)
+
+    def receiveInitialHandshakeResponse(self, data):
+        self.set_state(self.STATE_ReceivedInitialHandshakeResponse)
+        ver, method = struct.unpack('!BB', data)
+        if method != constants.AUTH_TOKEN:
+            self.log('Unsupported methods!')
+            self.transport.loseConnection()
+        else:
+            token = cfg.get('default', 'token', fallback='').encode()
+            request = struct.pack('!BB', constants.SOCKS5_VER, len(token)) + token
+            self.write(request)
+            self.set_state(self.STATE_SentAuthentication)
+
+    def receivedAuthenticationResponse(self, data):
+        self.set_state(self.STATE_ReceivedAuthenticationResponse)
+        ver, status = struct.unpack('!BB', data)
+
+        if status == 1:
+            self.set_state(self.STATE_Established)
+            self.auth_ok()
+        else:
+            self.set_state(self.STATE_Error)
+            self.transport.loseConnection()
+
+    def auth_ok(self):
+        self.server.set_state(self.server.STATE_ESTABLISHED)
+        self.server.transport.resumeProducing()
 
     def write(self, data):
         # data = self.server.factory.crypto.encrypt(data)

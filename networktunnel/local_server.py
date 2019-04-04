@@ -108,18 +108,10 @@ class ProxyServer(protocol.Protocol, LogMixin):
         point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=1080")
         d = connectProtocol(point, ProxyClient(self))
 
-        def success(ignored):
-            self.set_state(self.STATE_ESTABLISHED)
-            self.transport.resumeProducing()
-
-            # if self._buff:
-            #    self.client.write(self._buff)
-            #    self._buff = None
-
         def error(failure):
             raise errors.HostUnreachable()
 
-        d.addCallbacks(success, error)
+        d.addErrback(error)
 
         return d
 
