@@ -69,12 +69,12 @@ class ProxyServer(protocol.Protocol, LogMixin):
             error = failure.value
 
         if isinstance(error, (errors.NoAcceptableMethods, errors.LoginAuthenticationFailed)):
-            self.write(struct.pack('!BB', self._version, error.code))
+            self.transport.write(struct.pack('!BB', self._version, error.code))
         else:
             if hasattr(error, 'code'):
                 self.make_reply(error.code, self.host_address)
             else:
-                self.write(b'\xff')
+                self.transport.write(b'\xff')
 
         self.transport.loseConnection()
 
@@ -120,7 +120,7 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
     def reply_auth_ok(self):
         self.set_state(self.STATE_ESTABLISHED)
-        self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+        self.transport.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
         self.transport.resumeProducing()
 
     def is_state(self, state):
