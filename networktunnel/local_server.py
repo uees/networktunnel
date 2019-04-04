@@ -1,11 +1,11 @@
 import struct
 
-from twisted.internet import protocol, endpoints, reactor, defer
+from twisted.internet import defer, endpoints, protocol, reactor
 from twisted.internet.endpoints import clientFromString, connectProtocol
 
 from . import constants, errors
-from .logger import LogMixin
 from .local_client import ProxyClient
+from .logger import LogMixin
 
 
 class ProxyServer(protocol.Protocol, LogMixin):
@@ -17,6 +17,7 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
     def __init__(self):
         self.client = None
+        self.udp_client = None
         self.peer_address = None
         self.host_address = None
         self.is_udp_pipe = False
@@ -40,6 +41,11 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
         self.client = None
 
+        if self.udp_client is not None:
+            self.udp_client.doStop()
+
+        self.udp_client = None
+
     def dataReceived(self, data):
         if self.is_state(self.STATE_ESTABLISHED):
             # todo 第一条应该收到 CMD ，判断是否是 UDP 命令
@@ -51,9 +57,7 @@ class ProxyServer(protocol.Protocol, LogMixin):
         #    self._buff += data
 
         elif self.is_state(self.STATE_METHODS):
-            d = self.negotiate_methods(data)
-            # 协商之后立即创建客户端
-            d.addCallback(self.start_client)
+            self.negotiate_methods(data)
 
     def on_error(self, failure):
         self.set_state(self.STATE_ERROR)
@@ -96,14 +100,13 @@ class ProxyServer(protocol.Protocol, LogMixin):
             if constants.AUTH_ANONYMOUS not in methods:
                 raise errors.NoAcceptableMethods()
 
-            self.set_state(self.STATE_AUTH_SUCCESS)
-            self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+            return self.start_client()
 
         d.addCallback(negotiate)
 
         return d
 
-    def start_client(self, ignored):
+    def start_client(self):
         self.transport.pauseProducing()
         point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=1080")
         d = connectProtocol(point, ProxyClient(self))
@@ -114,6 +117,11 @@ class ProxyServer(protocol.Protocol, LogMixin):
         d.addErrback(error)
 
         return d
+
+    def reply_auth_ok(self):
+        self.set_state(self.STATE_ESTABLISHED)
+        self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+        self.transport.resumeProducing()
 
     def is_state(self, state):
         return self._state == state

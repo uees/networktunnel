@@ -5,7 +5,8 @@ from twisted.internet import protocol
 
 from config import get_config
 from settings import BASE_DIR
-from . import constants, errors
+
+from . import constants
 from .logger import LogMixin
 
 cfg = get_config(os.path.join(BASE_DIR, 'local.conf'))
@@ -87,14 +88,10 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
         if status == 1:
             self.set_state(self.STATE_Established)
-            self.auth_ok()
+            self.server.reply_auth_ok()
         else:
             self.set_state(self.STATE_Error)
             self.transport.loseConnection()
-
-    def auth_ok(self):
-        self.server.set_state(self.server.STATE_ESTABLISHED)
-        self.server.transport.resumeProducing()
 
     def write(self, data):
         # data = self.server.factory.crypto.encrypt(data)
