@@ -1,23 +1,26 @@
+import socket
 import struct
 
 from twisted.internet import defer, endpoints, protocol, reactor
 from twisted.internet.endpoints import clientFromString, connectProtocol
 
 from . import constants, errors
-from .local_client import ProxyClient
+from .helpers import parse_address
+from .local_client import ProxyClient, UDPProxyClient
 from .logger import LogMixin
 
 
 class ProxyServer(protocol.Protocol, LogMixin):
     STATE_METHODS = 0x01  # 协商认证方法
     STATE_AUTH = 0x02  # 认证中
-    STATE_AUTH_SUCCESS = 0x03
-    STATE_ESTABLISHED = 0x04  # 认证完成
+    STATE_COMMAND = 0x03  # 发送命令
+    STATE_ESTABLISHED = 0x04  # 完成
     STATE_ERROR = 0xff
 
     def __init__(self):
         self.client = None
         self.udp_client = None
+        self.udp_port = None
         self.peer_address = None
         self.host_address = None
         self.is_udp_pipe = False
@@ -38,26 +41,33 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
         if self.client is not None and self.client.transport:
             self.client.transport.loseConnection()
+            self.client = None
 
-        self.client = None
-
-        if self.udp_client is not None:
-            self.udp_client.doStop()
-
-        self.udp_client = None
+        if self.udp_port is not None:
+            self.udp_port.stopListening()
+            # self.udp_client.doStop()
+            self.udp_port = None
+            self.udp_client = None
 
     def dataReceived(self, data):
+        # 接受 socks client 的数据
         if self.is_state(self.STATE_ESTABLISHED):
-            # todo 第一条应该收到 CMD ，判断是否是 UDP 命令
             self.client.write(data)
 
-        # elif self.is_state(self.STATE_AUTH_SUCCESS):
-        #    # 验证成功，但是 client 还未创建, 临时缓存 buff
-        #    # 其实这里不会有数据
-        #    self._buff += data
-
         elif self.is_state(self.STATE_METHODS):
-            self.negotiate_methods(data)
+            self.negotiate_methods(data).addErrback(self.on_error)
+
+        elif self.is_state(self.STATE_COMMAND):
+            # 判断是否是 UDP 命令
+            self.parse_command(data).addErrback(self.on_error)
+
+    def on_client_auth_ok(self):
+        self.set_state(self.STATE_COMMAND)
+        self.transport.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+        self.transport.resumeProducing()
+
+    def on_client_established(self):
+        self.set_state(self.STATE_ESTABLISHED)
 
     def on_error(self, failure):
         self.set_state(self.STATE_ERROR)
@@ -106,6 +116,50 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
         return d
 
+    def parse_command(self, data: bytes):
+        """ 解析命令 """
+        if len(data) < 4:
+            return defer.fail(errors.ParsingError())
+
+        ver, cmd, rsv, atyp = struct.unpack('!4B', data[0:4])
+        d = self.check_version(ver)
+
+        def parse(ignored):
+            """ 分配命令 """
+            if cmd in (constants.CMD_CONNECT, constants.CMD_BIND):
+                return data
+
+            elif cmd == constants.CMD_UDP_ASSOCIATE:
+                self.start_udp_client(atyp, data)
+
+                address = self.udp_port.getHost()
+
+                # 修改 CMD 包, 通知 socks 服务器由本地UPD代理客户端转发数据
+                request = b''.join([
+                    struct.pack('!4B', self._version, constants.CMD_UDP_ASSOCIATE, constants.RSV, constants.ATYP_IPV4),
+                    b''.join([socket.inet_aton(address.host), struct.pack('!H', address.port)])
+                ])
+
+                return request
+
+            raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
+
+        d.addCallback(parse)
+
+        def send_command(request):
+            self.client.sendCommand(request)
+
+        d.addCallback(send_command)
+
+        return d
+
+    def start_udp_client(self, atyp, data):
+        # 获取 socks 客户端绑定的 UDP 端口
+        org_host, org_port = parse_address(atyp, data)
+
+        self.upd_client = UDPProxyClient(self, addr=(org_host, org_port), atyp=atyp)
+        self.udp_port = self.factory.reactor.listenUDP(0, self.upd_client)
+
     def start_client(self):
         self.transport.pauseProducing()
         point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=1080")
@@ -117,11 +171,6 @@ class ProxyServer(protocol.Protocol, LogMixin):
         d.addErrback(error)
 
         return d
-
-    def reply_auth_ok(self):
-        self.set_state(self.STATE_ESTABLISHED)
-        self.transport.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
-        self.transport.resumeProducing()
 
     def is_state(self, state):
         return self._state == state

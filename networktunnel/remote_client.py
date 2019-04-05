@@ -1,6 +1,5 @@
 from twisted.internet import protocol
 
-from .constants import SOCKS5_GRANTED
 from .helpers import create_udp_frame, parse_udp_frame
 from .logger import LogMixin
 
@@ -32,9 +31,9 @@ class RemoteProxyClient(protocol.Protocol, LogMixin):
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-        self.server.client = None
-        self.server.transport.loseConnection()
-        self.server = None
+        if self.server is not None and self.server.transport:
+            self.server.transport.loseConnection()
+            self.server = None
 
     def dataReceived(self, data):
         self.server.write(data)  # 转发数据
@@ -61,15 +60,13 @@ class RemoteBindProxyClient(protocol.Protocol, LogMixin):
 
         self.server.transport.resumeProducing()
 
-        from networktunnel.remote_server import State
-        self.server.set_state(State.ESTABLISHED)
-        # 第二个回复在预期的传入连接成功或失败之后发生
-        self.server.make_reply(SOCKS5_GRANTED, address=self.peer_address)
+        self.on_bind_connect_success()
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-        self.server.client = None
-        self.server.transport.loseConnection()
+        if self.server is not None and self.server.transport:
+            self.server.transport.loseConnection()
+            self.server = None
 
     def dataReceived(self, data):
         self.server.write(data)

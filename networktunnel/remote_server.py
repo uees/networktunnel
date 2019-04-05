@@ -17,29 +17,27 @@ from .remote_client import (RemoteBindClientFactory, RemoteProxyClient,
                             RemoteUdpProxyClient)
 
 
-class State:
-    IGNORED = 0x00
-    METHODS = 0x01  # 协商认证方法
-    AUTH = 0x02  # 认证中
-    COMMAND = 0x03  # 解析命令
-    WAITING_CONNECTION = 0x04
-    ESTABLISHED = 0x05
-    DISCONNECTED = 0x06  # bind 成功
-    ERROR = 0xff
-
-
 class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
+
+    STATE_IGNORED = 0x00
+    STATE_METHODS = 0x01  # 协商认证方法
+    STATE_AUTH = 0x02  # 认证中
+    STATE_COMMAND = 0x03  # 解析命令
+    STATE_WAITING_CONNECTION = 0x04
+    STATE_ESTABLISHED = 0x05
+    STATE_DISCONNECTED = 0x06  # bind 成功
+    STATE_ERROR = 0xff
 
     def __init__(self):
         self.client = None
         self.peer_address = None
         self.host_address = None
+        self.udp_port = None
 
         self._version = constants.SOCKS5_VER
-        self._state = State.METHODS
+        self._state = self.STATE_METHODS
         self._auth_types = [constants.AUTH_ANONYMOUS, constants.AUTH_TOKEN]
         self._auth_method = None
-        self._pipe_type = None
 
     def connectionMade(self):
         self.peer_address = self.transport.getPeer()
@@ -50,8 +48,6 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def timeoutConnection(self):
         self.log('Connection time', self.peer_address)
-        if self.factory.num_protocols > 0:
-            self.factory.num_protocols -= 1
         super().timeoutConnection()
 
     def connectionLost(self, reason):
@@ -62,9 +58,14 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             self.factory.num_protocols -= 1
 
         # Remove client
+        if self.udp_port is not None:
+            self.udp_port.stopListening()
+            self.udp_port = None
+            self.client = None
+
         if self.client is not None and self.client.transport:
             self.client.transport.loseConnection()
-        self.client = None
+            self.client = None
 
     def dataReceived(self, data):
         # todo 解密
@@ -73,14 +74,14 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         def reset_timeout(ignored):
             self.resetTimeout()
 
-        if self.is_state(State.ESTABLISHED):
+        if self.is_state(self.STATE_ESTABLISHED):
             self.client.write(data)
 
-        elif self.is_state(State.METHODS):
+        elif self.is_state(self.STATE_METHODS):
             d = self.negotiate_methods(data)
             d.addCallbacks(reset_timeout, self.on_error)
 
-        elif self.is_state(State.AUTH):
+        elif self.is_state(self.STATE_AUTH):
             if self._auth_method == constants.AUTH_TOKEN:
                 d = self.auth_token(data)
                 d.addCallbacks(reset_timeout, self.on_error)
@@ -88,7 +89,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             else:
                 self.on_error(errors.LoginAuthenticationFailed())
 
-        elif self.is_state(State.COMMAND):
+        elif self.is_state(self.STATE_COMMAND):
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
@@ -98,7 +99,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.transport.write(data)
 
     def on_error(self, failure):
-        self.set_state(State.IGNORED)
+        self.set_state(self.STATE_IGNORED)
 
         # failure.value is the exception instance responsible for this failure.
         if isinstance(failure, Exception):
@@ -115,6 +116,11 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 self.write(b'\xff')
 
         self.transport.loseConnection()
+
+    def on_bind_connect_success(self):
+        self.set_state(self.STATE_ESTABLISHED)
+        # 第二个回复在预期的传入连接成功或失败之后发生
+        self.make_reply(constants.SOCKS5_GRANTED, address=self.client.peer_address)
 
     def check_version(self, ver: int):
         if ver != self._version:
@@ -153,9 +159,9 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
                 raise errors.NoAcceptableMethods()
 
             if self._auth_method == constants.AUTH_ANONYMOUS:
-                self.set_state(State.COMMAND)
+                self.set_state(self.STATE_COMMAND)
             else:
-                self.set_state(State.AUTH)
+                self.set_state(self.STATE_AUTH)
 
             self.write(struct.pack('!BB', self._version, self._auth_method))
 
@@ -191,7 +197,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             dd = auth_token(token)
 
             def on_success(result):
-                self.set_state(State.COMMAND)
+                self.set_state(self.STATE_COMMAND)
                 self.transport.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
 
             dd.addCallback(on_success)
@@ -254,7 +260,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
-            self.set_state(State.ESTABLISHED)
+            self.set_state(self.STATE_ESTABLISHED)
             # self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
@@ -283,7 +289,7 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         def first_reply(listening_port):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
-            self.set_state(State.WAITING_CONNECTION)
+            self.set_state(self.STATE_WAITING_CONNECTION)
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
@@ -310,9 +316,9 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
         def reply(ignored):
             client = RemoteUdpProxyClient(self, addr=(host, port), atyp=atyp)
-            listening_port = self.factory.reactor.listenUDP(0, client)
-            self.set_state(State.ESTABLISHED)
-            self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
+            self.udp_port = self.factory.reactor.listenUDP(0, client)
+            self.set_state(self.STATE_ESTABLISHED)
+            self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
 
         d.addCallback(reply)
         return d

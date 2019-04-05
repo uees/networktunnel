@@ -1,6 +1,9 @@
 from twisted.internet.endpoints import TCP4ServerEndpoint
 
+from config import ConfigFactory
 from networktunnel.remote_server import RemoteSocksV5ServerFactory
+
+config = ConfigFactory.get_config()
 
 
 def main():
@@ -9,7 +12,7 @@ def main():
     import sys
 
     log.startLogging(sys.stdout)
-    endpoint = TCP4ServerEndpoint(reactor, 1080)
+    endpoint = TCP4ServerEndpoint(reactor, config.getServerPort())
     endpoint.listen(RemoteSocksV5ServerFactory(reactor))
     reactor.run()
 
