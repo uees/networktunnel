@@ -1,7 +1,7 @@
 import socket
 import struct
 
-from twisted.internet import defer, endpoints, protocol, reactor
+from twisted.internet import defer, protocol
 from twisted.internet.endpoints import clientFromString, connectProtocol
 
 from . import constants, errors
@@ -162,7 +162,8 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
     def start_client(self):
         self.transport.pauseProducing()
-        point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=1080")
+        # todo get socks server host port
+        point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=6778")
         d = connectProtocol(point, ProxyClient(self))
 
         def error(failure):
@@ -185,9 +186,5 @@ class ProxyFactory(protocol.Factory):
     def __init__(self, reactor, key):
         self.reactor = reactor
         self.key = key
+        self.num_protocols = 0
         # self.crypto = crypt.MyCrypto(key)
-
-
-endpoint = endpoints.serverFromString(reactor, "tcp:1081:interface=127.0.0.1")
-endpoint.listen(ProxyFactory(reactor, "123456"))
-reactor.run()
