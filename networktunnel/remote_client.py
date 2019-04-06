@@ -1,10 +1,10 @@
 from twisted.internet import protocol
 
-from .helpers import create_udp_frame, parse_udp_frame
-from .logger import LogMixin
+from networktunnel.helpers import create_udp_frame, parse_udp_frame
+from networktunnel.logger import LogMixin
 
 
-class RemoteProxyClient(protocol.Protocol, LogMixin):
+class ProxyClient(protocol.Protocol, LogMixin):
 
     def __init__(self, server):
         self.server = server
@@ -42,7 +42,7 @@ class RemoteProxyClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class RemoteBindProxyClient(protocol.Protocol, LogMixin):
+class BindProxyClient(protocol.Protocol, LogMixin):
     def __init__(self, factory, server):
         self.factory = factory
         self.server = server
@@ -75,7 +75,7 @@ class RemoteBindProxyClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class RemoteUdpProxyClient(protocol.DatagramProtocol, LogMixin):
+class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
     def __init__(self, server, addr, atyp):
         self.server = server
         self.server.client = self
@@ -132,10 +132,10 @@ class RemoteUdpProxyClient(protocol.DatagramProtocol, LogMixin):
         pass
 
 
-class RemoteBindClientFactory(protocol.ServerFactory):
+class BindProxyClientFactory(protocol.ServerFactory):
 
     def __init__(self, server):
         self.server = server
 
     def buildProtocol(self, addr):
-        return RemoteBindProxyClient(self, self.server)
+        return BindProxyClient(self, self.server)

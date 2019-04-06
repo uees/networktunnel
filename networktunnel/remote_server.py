@@ -3,48 +3,31 @@ import socket
 import struct
 
 from twisted.internet import defer, protocol
-from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
 from twisted.internet.endpoints import (clientFromString, connectProtocol,
                                         serverFromString)
 from twisted.protocols import policies
 
-from config import ConfigFactory
+from config import ConfigManager
 
-from . import constants, errors
-from .helpers import get_method, parse_address, socks_domain_host
-from .logger import LogMixin
-from .remote_client import (RemoteBindClientFactory, RemoteProxyClient,
-                            RemoteUdpProxyClient)
+from networktunnel import constants, errors
+from networktunnel.base import BaseSocksServer
+from networktunnel.helpers import get_method, parse_address
+from networktunnel.remote_client import BindProxyClientFactory, ProxyClient, UdpProxyClient
 
 
-class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
-
-    STATE_IGNORED = 0x00
-    STATE_METHODS = 0x01  # 协商认证方法
-    STATE_AUTH = 0x02  # 认证中
-    STATE_COMMAND = 0x03  # 解析命令
-    STATE_WAITING_CONNECTION = 0x04
-    STATE_ESTABLISHED = 0x05
-    STATE_DISCONNECTED = 0x06  # bind 成功
-    STATE_ERROR = 0xff
+class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
     def __init__(self):
-        self.client = None
-        self.peer_address = None
-        self.host_address = None
-        self.udp_port = None
+        super().__init__()
 
-        self._version = constants.SOCKS5_VER
-        self._state = self.STATE_METHODS
         self._auth_types = [constants.AUTH_ANONYMOUS, constants.AUTH_TOKEN]
         self._auth_method = None
 
     def connectionMade(self):
-        self.peer_address = self.transport.getPeer()
-        self.host_address = self.transport.getHost()
+        super().connectionMade()
+        # self.set_state(self.STATE_AUTH)  # todo
         self.log('Connection made', self.peer_address)
-        self.factory.num_protocols += 1
-        # self.setTimeout(self.factory.config.getTimeOut())
+        self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
         self.log('Connection time', self.peer_address)
@@ -52,20 +35,8 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-
-        # self.setTimeout(None)
-        if self.factory.num_protocols > 0:
-            self.factory.num_protocols -= 1
-
-        # Remove client
-        if self.udp_port is not None:
-            self.udp_port.stopListening()
-            self.udp_port = None
-            self.client = None
-
-        if self.client is not None and self.client.transport:
-            self.client.transport.loseConnection()
-            self.client = None
+        self.setTimeout(None)
+        super().connectionLost(reason)
 
     def dataReceived(self, data):
         # todo 解密
@@ -93,41 +64,22 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
+        elif self.is_state(self.STATE_WAITING_CONNECTION):
+            # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
+            # 这个状态下等待 remote target 的数据
+            pass
+        else:
+            self.on_error(errors.StateError())
+
     def write(self, data):
         # todo 加密
         # data = self.factory.crypto.encrypt(data)
         self.transport.write(data)
 
-    def on_error(self, failure):
-        self.set_state(self.STATE_IGNORED)
-
-        # failure.value is the exception instance responsible for this failure.
-        if isinstance(failure, Exception):
-            error = failure
-        else:
-            error = failure.value
-
-        if isinstance(error, (errors.NoAcceptableMethods, errors.LoginAuthenticationFailed)):
-            self.write(struct.pack('!BB', self._version, error.code))
-        else:
-            if hasattr(error, 'code'):
-                self.make_reply(error.code, self.host_address)
-            else:
-                self.write(b'\xff')
-
-        self.transport.loseConnection()
-
     def on_bind_connect_success(self):
         self.set_state(self.STATE_ESTABLISHED)
         # 第二个回复在预期的传入连接成功或失败之后发生
         self.make_reply(constants.SOCKS5_GRANTED, address=self.client.peer_address)
-
-    def check_version(self, ver: int):
-        if ver != self._version:
-            self.log(f'Wrong version from {self.peer_address}')
-            return defer.fail(errors.InvalidServerVersion())
-
-        return defer.succeed(True)
 
     # request
     # +----+----------+----------+
@@ -256,12 +208,12 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
         self.transport.pauseProducing()
 
         point = clientFromString(self.factory.reactor, f"tcp:host={domain}:port={port}")
-        d = connectProtocol(point, RemoteProxyClient(self))
+        d = connectProtocol(point, ProxyClient(self))
 
         def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
             self.set_state(self.STATE_ESTABLISHED)
-            # self.setTimeout(None)  # 取消超时
+            self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()
@@ -291,10 +243,11 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
             self.set_state(self.STATE_WAITING_CONNECTION)
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
+            self.setTimeout(None)  # 取消超时
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
         # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
-        d = endpoint.listen(RemoteBindClientFactory(self))
+        d = endpoint.listen(BindProxyClientFactory(self))
         d.addCallback(first_reply)
 
         return d
@@ -315,49 +268,20 @@ class RemoteSocksV5Server(policies.TimeoutMixin, LogMixin, protocol.Protocol):
             host = self.peer_address.host
 
         def reply(ignored):
-            client = RemoteUdpProxyClient(self, addr=(host, port), atyp=atyp)
-            self.udp_port = self.factory.reactor.listenUDP(0, client)
+            self.udp_client = UdpProxyClient(self, addr=(host, port), atyp=atyp)
+            self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
             self.set_state(self.STATE_ESTABLISHED)
             self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
+            self.setTimeout(None)  # 取消超时
 
         d.addCallback(reply)
         return d
 
-    def is_state(self, state):
-        return self._state == state
 
-    def set_state(self, state):
-        self._state = state
-
-    def make_reply(self, rep, address=None):
-        if isinstance(address, IPv4Address):
-            response = b''.join([
-                struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_IPV4),
-                b''.join([socket.inet_aton(address.host), struct.pack('!H', address.port)])
-            ])
-        elif isinstance(address, IPv6Address):
-            response = b''.join([
-                struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_IPV6),
-                b''.join([socket.inet_pton(socket.AF_INET6, address.host), struct.pack('!H', address.port)])
-            ])
-        elif isinstance(address, HostnameAddress):
-            response = b''.join([
-                struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_DOMAINNAME),
-                b''.join([socks_domain_host(address.host), struct.pack('!H', address.port)])
-            ])
-        else:
-            response = b''.join([
-                struct.pack('!4B', self._version, rep, constants.RSV, constants.ATYP_IPV4),
-                b''.join([socket.inet_aton('0.0.0.0'), struct.pack('!H', address.port)])
-            ])
-
-        self.write(response)
-
-
-class RemoteSocksV5ServerFactory(protocol.Factory):
-    protocol = RemoteSocksV5Server
+class SocksServerFactory(protocol.Factory):
+    protocol = SocksServer
 
     def __init__(self, reactor):
         self.num_protocols = 0
         self.reactor = reactor
-        self.config = ConfigFactory.get_config()
+        self.config = ConfigManager()

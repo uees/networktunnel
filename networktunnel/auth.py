@@ -1,15 +1,15 @@
 from twisted.internet import defer
 
-from config import ConfigFactory
+from config import ConfigManager
 
-from .errors import LoginAuthenticationFailed
+from networktunnel.errors import LoginAuthenticationFailed
 
-config = ConfigFactory.get_config()
+conf = ConfigManager().default
 
 
 @defer.inlineCallbacks
 def auth_token(token: str):
-    if token == config.parser.get('DEFAULT', 'token'):
+    if token == conf.get('remote', 'token'):
         yield True
     else:
         raise LoginAuthenticationFailed()

@@ -1,7 +1,7 @@
 import socket
 import struct
 
-from . import constants, errors
+from networktunnel import constants, errors
 
 # +----+-----+-------+------+----------+----------+
 # |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |

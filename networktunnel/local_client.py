@@ -1,18 +1,14 @@
-import os
 import socket
 import struct
 
 from twisted.internet import protocol
 from twisted.internet.address import IPv4Address, IPv6Address
 
-from config import get_config
-from settings import BASE_DIR
+from config import ConfigManager
 
-from . import constants
-from .helpers import parse_address, socks_domain_host
-from .logger import LogMixin
-
-cfg = get_config(os.path.join(BASE_DIR, 'local.conf'))
+from networktunnel import constants
+from networktunnel.helpers import parse_address, socks_domain_host
+from networktunnel.logger import LogMixin
 
 
 class ProxyClient(protocol.Protocol, LogMixin):
@@ -25,11 +21,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
     STATE_ReceivedInitialHandshakeResponse = 0x04
     STATE_SentAuthentication = 0x05
     STATE_ReceivedAuthenticationResponse = 0x06
-    STATE_WaitCommand = 0x07
+    STATE_WaitingCommand = 0x07
     STATE_SentCommand = 0x08
     STATE_ReceivedCommandResponse = 0x09
-    STATE_Established = 0x0a
-    STATE_Disconnected = 0x0b
+    STATE_WaitingConnection = 0x0a
+    STATE_Established = 0x0b
+    STATE_Disconnected = 0x0c
     STATE_Error = 0xff
 
     def __init__(self, server):
@@ -38,7 +35,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.server.client = self
         self.peer_address = None
         self.host_address = None
-        self.has_udp_cmd = False
+        self.request_cmd = None
 
     def connectionMade(self):
         self.set_state(self.STATE_Connected)
@@ -67,7 +64,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
         if self.is_state(self.STATE_Established):
             # 转发， 命令确认后进入此状态
-            self.server.transport.write(data)
+            self.server.write(data)
 
         elif self.is_state(self.STATE_SentInitialHandshake):
             self.receiveInitialHandshakeResponse(data)
@@ -78,6 +75,10 @@ class ProxyClient(protocol.Protocol, LogMixin):
         elif self.is_state(self.STATE_SentCommand):
             self.receiveCommandResponse(data)
 
+        elif self.is_state(self.STATE_WaitingConnection):
+            # bind cmd state
+            self.receiveRemoteConnection(data)
+
     def sendInitialHandshake(self):
         self.set_state(self.STATE_SentInitialHandshake)
         request = struct.pack('!BBB', constants.SOCKS5_VER, 1, constants.AUTH_TOKEN)
@@ -85,7 +86,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def receiveInitialHandshakeResponse(self, data):
         self.set_state(self.STATE_ReceivedInitialHandshakeResponse)
-        ver, method = struct.unpack('!BB', data)
+
+        try:
+            _, method = struct.unpack('!BB', data)
+        except struct.error:
+            method = constants.NO_ACCEPTABLE_METHODS
+
         if method != constants.AUTH_TOKEN:
             self.log('Unsupported methods!')
             self.transport.loseConnection()
@@ -94,25 +100,36 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def sendAuthentication(self):
         self.set_state(self.STATE_SentAuthentication)
-        token = cfg.get('default', 'token', fallback='').encode()
+        conf = ConfigManager().default
+        token = conf.get('local', 'token', fallback='').encode()
         request = b''.join([struct.pack('!BB', constants.SOCKS5_VER, len(token)), token])
         self.write(request)
 
     def receivedAuthenticationResponse(self, data):
         self.set_state(self.STATE_ReceivedAuthenticationResponse)
-        ver, status = struct.unpack('!BB', data)
+
+        try:
+            _, status = struct.unpack('!BB', data)
+        except struct.error:
+            status = 0
 
         if status == 1:
             # 等待 self.server 封装命令
-            self.set_state(self.STATE_WaitCommand)
+            self.set_state(self.STATE_WaitingCommand)
             self.server.on_client_auth_ok()
         else:
             self.set_state(self.STATE_Error)
+            self.server.on_client_auth_error()
             self.transport.loseConnection()
 
-    def sendCommand(self, data, is_udp=False):
+    # +----+-----+-------+------+----------+----------+
+    # |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+    # +----+-----+-------+------+----------+----------+
+    # | 1  |  1  | X'00' |  1   | Variable |    2     |
+    # +----+-----+-------+------+----------+----------+
+    def sendCommand(self, data):
         self.set_state(self.STATE_SentCommand)
-        self.has_udp_cmd = is_udp
+        self.request_cmd = ord(data[1:2])
         self.write(data)
 
     # +----+-----+-------+------+----------+----------+
@@ -123,39 +140,56 @@ class ProxyClient(protocol.Protocol, LogMixin):
     def receiveCommandResponse(self, data):
         self.set_state(self.STATE_ReceivedCommandResponse)
 
-        ver, rep = struct.unpack('!BB', data[:2])
+        try:
+            ver, rep = struct.unpack('!BB', data[:2])
+        except struct.error:
+            rep = constants.SOCKS5_GENERAL_FAILURE
+
         if rep == constants.SOCKS5_GRANTED:
-            if self.has_udp_cmd:
-                self.has_udp_cmd = False
-                # 获取并保存地址信息
+            if self.request_cmd == constants.CMD_UDP_ASSOCIATE:
                 atyp = ord(data[3:4])
                 host, port = parse_address(atyp, data)
-                self.server.upd_client.set_peer((host, port), atyp)
+                self.server.upd_client.set_peer((host, port), atyp)  # 保存地址信息
 
-                # 修改地址信息, 通知 socks 客户端由本地另一UPD端口转发数据
-                address = self.server.upd_client.address
-                if isinstance(address, IPv4Address):
-                    addr = socket.inet_aton(address.host)
-                    addr_type = constants.ATYP_IPV4
-                elif isinstance(address, IPv6Address):
-                    addr = socket.inet_pton(socket.AF_INET6, address.host)
-                    addr_type = constants.ATYP_IPV6
-                else:
-                    addr = socks_domain_host(address.host)
-                    addr_type = constants.ATYP_DOMAINNAME
+                data = self.modify_udp_cmd_response(ver, rep)
+                self.set_state(self.STATE_Established)
+                self.server.on_client_established()
 
-                data = b''.join([
-                    struct.pack('!4B', ver, rep, constants.RSV, addr_type),
-                    b''.join([addr, struct.pack('!H', address.port)])
-                ])
+            elif self.request_cmd == constants.CMD_BIND:
+                self.set_state(self.STATE_WaitingConnection)
+                self.server.on_bind_first_reply()
 
-            self.set_state(self.STATE_Established)
-            self.server.on_client_established()
-            self.server.transport.write(data)
+            else:  # cmd_connect
+                self.set_state(self.STATE_Established)
+                self.server.on_client_established()
+
+            self.server.write(data)
         else:
             self.set_state(self.STATE_Error)
-            self.server.transport.write(data)
+            self.server.write(data)
             self.transport.loseConnection()
+
+    def receiveRemoteConnection(self, data):
+        self.set_state(self.STATE_Established)
+        self.server.write(data)
+
+    def modify_udp_cmd_response(self, ver, rep):
+        # 修改地址信息, 通知 socks 客户端由本地另一UPD端口转发数据
+        address = self.server.upd_client.address
+        if isinstance(address, IPv4Address):
+            addr = socket.inet_aton(address.host)
+            addr_type = constants.ATYP_IPV4
+        elif isinstance(address, IPv6Address):
+            addr = socket.inet_pton(socket.AF_INET6, address.host)
+            addr_type = constants.ATYP_IPV6
+        else:
+            addr = socks_domain_host(address.host)
+            addr_type = constants.ATYP_DOMAINNAME
+
+        return b''.join([
+            struct.pack('!4B', ver, rep, constants.RSV, addr_type),
+            b''.join([addr, struct.pack('!H', address.port)])
+        ])
 
     def write(self, data):
         # data = self.server.factory.crypto.encrypt(data)

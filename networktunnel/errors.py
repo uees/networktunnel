@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from . import constants as c
+from networktunnel import constants as c
 
 
 class ParsingError(Exception):

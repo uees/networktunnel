@@ -1,10 +1,12 @@
 from twisted.python import log
 
-from config import ConfigFactory
+from config import ConfigManager
+
+config = ConfigManager()
 
 
 class LogMixin:
     @staticmethod
     def log(*message, **event):
-        if ConfigFactory.get_config().getLogLevel() >= 3:
+        if config.getLogLevel() >= 3:
             log.msg(*message, **event)

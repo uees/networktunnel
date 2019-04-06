@@ -1,11 +1,7 @@
-import os
 from twisted.internet.endpoints import TCP4ServerEndpoint
 
-from config import get_config
-from settings import BASE_DIR
-from networktunnel.local_server import ProxyFactory
-
-cfg = get_config(os.path.join(BASE_DIR, 'local.conf'))
+from config import ConfigManager
+from networktunnel.local_server import TransferServerFactory
 
 
 def main():
@@ -14,8 +10,9 @@ def main():
     import sys
 
     log.startLogging(sys.stdout)
-    endpoint = TCP4ServerEndpoint(reactor, cfg.getint('default', 'port'))
-    endpoint.listen(ProxyFactory(reactor, cfg.get('default', 'key')))
+    cfg = ConfigManager().default
+    endpoint = TCP4ServerEndpoint(reactor, cfg.getint('local', 'port'))
+    endpoint.listen(TransferServerFactory(reactor, cfg.get('local', 'key')))
     reactor.run()
 
 

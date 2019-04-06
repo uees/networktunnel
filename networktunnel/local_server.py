@@ -4,50 +4,17 @@ import struct
 from twisted.internet import defer, protocol
 from twisted.internet.endpoints import clientFromString, connectProtocol
 
-from . import constants, errors
-from .helpers import parse_address
-from .local_client import ProxyClient, UDPProxyClient
-from .logger import LogMixin
+from config import ConfigManager
+from networktunnel import constants, errors
+from networktunnel.base import BaseSocksServer
+from networktunnel.helpers import parse_address
+from networktunnel.local_client import ProxyClient, UDPProxyClient
 
 
-class ProxyServer(protocol.Protocol, LogMixin):
-    STATE_METHODS = 0x01  # 协商认证方法
-    STATE_AUTH = 0x02  # 认证中
-    STATE_COMMAND = 0x03  # 发送命令
-    STATE_ESTABLISHED = 0x04  # 完成
-    STATE_ERROR = 0xff
-
-    def __init__(self):
-        self.client = None
-        self.udp_client = None
-        self.udp_port = None
-        self.peer_address = None
-        self.host_address = None
-        self.is_udp_pipe = False
-
-        self._version = constants.SOCKS5_VER
-        self._state = self.STATE_METHODS
-        # self._buff = b''
-
-    def connectionMade(self):
-        self.peer_address = self.transport.getPeer()
-        self.host_address = self.transport.getHost()
-
-        self.factory.num_protocols += 1
-
-    def connectionLost(self, reason):
-        if self.factory.num_protocols > 0:
-            self.factory.num_protocols -= 1
-
-        if self.client is not None and self.client.transport:
-            self.client.transport.loseConnection()
-            self.client = None
-
-        if self.udp_port is not None:
-            self.udp_port.stopListening()
-            # self.udp_client.doStop()
-            self.udp_port = None
-            self.udp_client = None
+class TransferServer(BaseSocksServer):
+    """
+    本地端口转发服务器, 转发 socks client 的数据, 并加密
+    """
 
     def dataReceived(self, data):
         # 接受 socks client 的数据
@@ -55,45 +22,39 @@ class ProxyServer(protocol.Protocol, LogMixin):
             self.client.write(data)
 
         elif self.is_state(self.STATE_METHODS):
+            # 这个状态下开始建立本地端口转发客户端
             self.negotiate_methods(data).addErrback(self.on_error)
 
+        elif self.is_state(self.STATE_AUTH):
+            # 本地端口转换服务没有设计认证, 始终不会有这个状态
+            pass
+
         elif self.is_state(self.STATE_COMMAND):
-            # 判断是否是 UDP 命令
+            # 这个状态下已经建立了端口转发客户端
             self.parse_command(data).addErrback(self.on_error)
+
+        elif self.is_state(self.STATE_WAITING_CONNECTION):
+            # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
+            # 这个状态下等待 remote target 的数据
+            pass
+        else:
+            self.on_error(errors.StateError())
 
     def on_client_auth_ok(self):
         self.set_state(self.STATE_COMMAND)
-        self.transport.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+        self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
         self.transport.resumeProducing()
+
+    def on_client_auth_error(self):
+        self.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
+        self.transport.resumeProducing()
+        self.transport.loseConnection()
+
+    def on_bind_first_reply(self):
+        self.set_state(self.STATE_WAITING_CONNECTION)
 
     def on_client_established(self):
         self.set_state(self.STATE_ESTABLISHED)
-
-    def on_error(self, failure):
-        self.set_state(self.STATE_ERROR)
-
-        # failure.value is the exception instance responsible for this failure.
-        if isinstance(failure, Exception):
-            error = failure
-        else:
-            error = failure.value
-
-        if isinstance(error, (errors.NoAcceptableMethods, errors.LoginAuthenticationFailed)):
-            self.transport.write(struct.pack('!BB', self._version, error.code))
-        else:
-            if hasattr(error, 'code'):
-                self.make_reply(error.code, self.host_address)
-            else:
-                self.transport.write(b'\xff')
-
-        self.transport.loseConnection()
-
-    def check_version(self, ver: int):
-        if ver != self._version:
-            self.log(f'Wrong version from {self.peer_address}')
-            return defer.fail(errors.InvalidServerVersion())
-
-        return defer.succeed(True)
 
     def negotiate_methods(self, data: bytes):
         """ 协商 methods """
@@ -105,7 +66,7 @@ class ProxyServer(protocol.Protocol, LogMixin):
         d = self.check_version(ver)
 
         def negotiate(ignored):
-            methods = struct.unpack('!%dB' % nmethods, data[2:2 + nmethods])
+            methods = struct.unpack(f'!{nmethods}B', data[2:2 + nmethods])
 
             if constants.AUTH_ANONYMOUS not in methods:
                 raise errors.NoAcceptableMethods()
@@ -130,7 +91,7 @@ class ProxyServer(protocol.Protocol, LogMixin):
                 return data
 
             elif cmd == constants.CMD_UDP_ASSOCIATE:
-                self.start_udp_client(atyp, data)
+                self.start_udp_client(atyp, data)  # 同步函数
 
                 address = self.udp_port.getHost()
 
@@ -157,13 +118,14 @@ class ProxyServer(protocol.Protocol, LogMixin):
         # 获取 socks 客户端绑定的 UDP 端口
         org_host, org_port = parse_address(atyp, data)
 
-        self.upd_client = UDPProxyClient(self, addr=(org_host, org_port), atyp=atyp)
+        self.udp_client = UDPProxyClient(self, addr=(org_host, org_port), atyp=atyp)
         self.udp_port = self.factory.reactor.listenUDP(0, self.upd_client)
 
     def start_client(self):
         self.transport.pauseProducing()
-        # todo get socks server host port
-        point = clientFromString(self.factory.reactor, "tcp:host=127.0.0.1:port=6778")
+        conf = ConfigManager().default
+        proxy_host_port = conf.get('local', 'proxy_host_port')
+        point = clientFromString(self.factory.reactor, f"tcp:{proxy_host_port}")
         d = connectProtocol(point, ProxyClient(self))
 
         def error(failure):
@@ -173,15 +135,9 @@ class ProxyServer(protocol.Protocol, LogMixin):
 
         return d
 
-    def is_state(self, state):
-        return self._state == state
 
-    def set_state(self, state):
-        self._state = state
-
-
-class ProxyFactory(protocol.Factory):
-    protocol = ProxyServer
+class TransferServerFactory(protocol.Factory):
+    protocol = TransferServer
 
     def __init__(self, reactor, key):
         self.reactor = reactor

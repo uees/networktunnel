@@ -5,14 +5,8 @@ import configparser
 from settings import BASE_DIR
 
 
-def get_config(filepath):
-    parser = configparser.ConfigParser()
-    parser.read(filepath)
-    return parser
-
-
-class ConfigFactory(object):
-    config = None
+class ConfigManager(object):
+    _config = {}
 
     #
     #    -read(filename)     直接读取文件内容
@@ -22,44 +16,53 @@ class ConfigFactory(object):
     #    -get(section,option)      得到section中option的值，返回为string类型
     #    -getint(section,option)    得到section中option的值，返回为int类型，还有相应的getboolean()和getfloat() 函数。
     def __init__(self, default='default.conf'):
-        self.parser = get_config(os.path.join(BASE_DIR, default))
+        self.default = self.get_config(os.path.join(BASE_DIR, default))
 
     @classmethod
-    def get_config(cls):
-        if cls.config is None:
-            cls.config = cls()
+    def load_config(cls, filepath):
+        parser = configparser.ConfigParser()
+        parser.read(filepath)
+        cls._config.update({filepath: parser})
+        return parser
 
-        return cls.config
+    @classmethod
+    def get_config(cls, filename):
+        parser = cls._config.get(filename)
+
+        if not parser:
+            parser = cls.load_config(filename)
+
+        return parser
 
     def getTimeOut(self):
-        return self.parser.getint('DEFAULT', 'timeout', fallback=30)
+        return self.default.getint('remote', 'timeout', fallback=30)
 
     def getConnectionsLimit(self):
-        return self.parser.getint('DEFAULT', 'connectionslimit', fallback=100)
+        return self.default.getint('remote', 'connectionslimit', fallback=100)
 
     def getListenInterface(self):
-        return self.parser.get('DEFAULT', 'listeninterface', fallback='')
+        return self.default.get('remote', 'listeninterface', fallback='')
 
     def getSocksAuth(self):
-        return self.parser.getboolean('DEFAULT', 'socksauth', fallback=True)
+        return self.default.getboolean('remote', 'socksauth', fallback=True)
 
     def getAuthApi(self):
-        return self.parser.get('DEFAULT', 'AuthApi', fallback='')
+        return self.default.get('remote', 'AuthApi', fallback='')
 
     def getAllowInsPeers(self):
-        return self.parser.get('DEFAULT', 'AllowInsPeers', fallback='')
+        return self.default.get('remote', 'AllowInsPeers', fallback='')
 
     def getAllowOutPeers(self):
-        return self.parser.get('DEFAULT', 'AllowOutPeers', fallback='')
+        return self.default.get('remote', 'AllowOutPeers', fallback='')
 
     def getProtocols(self):
-        return self.parser.get('DEFAULT', 'Protocols', fallback='socks5')
+        return self.default.get('remote', 'Protocols', fallback='socks5')
 
     def getDebug(self):
-        return self.parser.getboolean('DEFAULT', 'Debug', fallback=True)
+        return self.default.getboolean('remote', 'Debug', fallback=True)
 
     def getLogLevel(self):
-        return self.parser.getint('DEFAULT', 'LogLevel', fallback=4)
+        return self.default.getint('remote', 'LogLevel', fallback=4)
 
     def getServerPort(self):
-        return self.parser.getint('DEFAULT', 'ServerPort', fallback=6778)
+        return self.default.getint('remote', 'ServerPort', fallback=6778)
