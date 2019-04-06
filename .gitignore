@@ -105,3 +105,4 @@ venv.bak/
 .idea/
 _trial_temp/
 default.conf
+*.pem
