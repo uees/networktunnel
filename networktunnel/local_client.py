@@ -141,7 +141,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.set_state(self.STATE_ReceivedCommandResponse)
 
         try:
-            ver, rep = struct.unpack('!BB', data[:2])
+            _, rep = struct.unpack('!BB', data[:2])
         except struct.error:
             rep = constants.SOCKS5_GENERAL_FAILURE
 
@@ -151,7 +151,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
                 host, port = parse_address(atyp, data)
                 self.server.upd_client.set_peer((host, port), atyp)  # 保存地址信息
 
-                data = self.modify_udp_cmd_response(ver, rep)
+                data = self.modify_udp_cmd_response(constants.SOCKS5_VER, rep)
                 self.set_state(self.STATE_Established)
                 self.server.on_client_established()
 
@@ -163,6 +163,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
                 self.set_state(self.STATE_Established)
                 self.server.on_client_established()
 
+            self.request_cmd = None  # 重置 cmd
             self.server.write(data)
         else:
             self.set_state(self.STATE_Error)
