@@ -12,7 +12,7 @@ def main():
     log.startLogging(sys.stdout)
     cfg = ConfigManager().default
     endpoint = TCP4ServerEndpoint(reactor, cfg.getint('local', 'port'))
-    endpoint.listen(TransferServerFactory(reactor, cfg.get('local', 'key')))
+    endpoint.listen(TransferServerFactory(reactor))
     reactor.run()
 
 

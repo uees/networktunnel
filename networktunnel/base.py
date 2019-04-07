@@ -1,8 +1,8 @@
 import socket
 import struct
 
-from twisted.internet import protocol, defer
-from twisted.internet.address import IPv4Address, IPv6Address, HostnameAddress
+from twisted.internet import defer, protocol
+from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
 
 from networktunnel import constants, errors
 from networktunnel.helpers import socks_domain_host
@@ -95,6 +95,8 @@ class BaseSocksServer(LogMixin, protocol.Protocol):
             struct.pack('!4B', self._version, rep, constants.RSV, atyp),
             b''.join([addr, struct.pack('!H', address.port)])
         ])
+
+        print(response)
 
         self.write(response)
 

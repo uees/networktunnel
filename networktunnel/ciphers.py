@@ -1,12 +1,14 @@
-import json
-import os
 import abc
 import hashlib
-from Crypto.Cipher import AES, ChaCha20, Salsa20, ARC4
-from Crypto.Protocol.KDF import HKDF
-from Crypto.Hash.SHA1 import SHA1Hash
-from Crypto.PublicKey import RSA
+import json
+import os
+
+from Crypto.Cipher import AES, ARC4, ChaCha20
 from Crypto.Cipher import PKCS1_v1_5 as Cipher_pkcs1_v1_5
+from Crypto.Cipher import Salsa20
+from Crypto.Hash.SHA1 import SHA1Hash
+from Crypto.Protocol.KDF import HKDF
+from Crypto.PublicKey import RSA
 
 
 class BaseCipher:
@@ -200,9 +202,8 @@ class RC4Cipher(StreamCipher):
 
 
 class RSAManager(object):
-
     # static property, 避免重复读取文件
-    password = None
+    _key = None
 
     def __init__(self, password=None):
         pass
@@ -227,12 +228,12 @@ class RSAManager(object):
     def new_cipher(self, file_path, iv=None):
         # cipher has encrypt and decrypt methods
         # key is public.pem or private.pem file path
-        if not self.password:
+        if not self._key:
             with open(file_path, 'r') as f:
                 key = f.read()
-                self.password = RSA.importKey(key)  # 导入读取到的公钥
+                self._key = RSA.importKey(key)  # 导入读取到的公钥
 
-        cipher = Cipher_pkcs1_v1_5.new(self.password)  # 生成对象
+        cipher = Cipher_pkcs1_v1_5.new(self._key)  # 生成对象
         return cipher
 
 
@@ -253,14 +254,15 @@ class TableCipher(object):
 
 
 class TableManager(RSAManager):
+    _cipher = None
 
     def new_cipher(self, file_path, iv=None):
-        if not self.password:
+        if not self._key:
             with open(file_path, 'r') as fp:
-                self.password = json.load(fp)
+                self._key = json.load(fp)
+                self._cipher = TableCipher(self._key)
 
-        cipher = TableCipher(self.password)
-        return cipher
+        return self._cipher
 
 
 ciphers = {

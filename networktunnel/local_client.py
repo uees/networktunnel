@@ -5,7 +5,6 @@ from twisted.internet import protocol
 from twisted.internet.address import IPv4Address, IPv6Address
 
 from config import ConfigManager
-
 from networktunnel import constants
 from networktunnel.helpers import parse_address, socks_domain_host
 from networktunnel.logger import LogMixin
@@ -61,7 +60,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
     def dataReceived(self, data):
         # 这里是接收到远程 socks 服务器的数据
         # 首先解密
-        if self.is_state(self.STATE_ESTABLISHED):
+        if self.is_state(self.STATE_Established):
             data = self.server.factory.shadow.decrypt_data(data)
         else:
             data = self.server.factory.shadow.decrypt_protocol_data(data)
@@ -111,7 +110,6 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def receivedAuthenticationResponse(self, data):
         self.set_state(self.STATE_ReceivedAuthenticationResponse)
-
         try:
             _, status = struct.unpack('!BB', data)
         except struct.error:
@@ -156,27 +154,30 @@ class ProxyClient(protocol.Protocol, LogMixin):
                 self.server.upd_client.set_peer((host, port), atyp)  # 保存地址信息
 
                 data = self.modify_udp_cmd_response(constants.SOCKS5_VER, rep)
+                self.server.write(data)
                 self.set_state(self.STATE_Established)
                 self.server.on_client_established()
 
             elif self.request_cmd == constants.CMD_BIND:
+                self.server.write(data)
                 self.set_state(self.STATE_WaitingConnection)
                 self.server.on_bind_first_reply()
 
             else:  # cmd_connect
+                self.server.write(data)
                 self.set_state(self.STATE_Established)
                 self.server.on_client_established()
 
             self.request_cmd = None  # 重置 cmd
-            self.server.write(data)
         else:
-            self.set_state(self.STATE_Error)
             self.server.write(data)
+            self.set_state(self.STATE_Error)
             self.transport.loseConnection()
 
     def receiveRemoteConnection(self, data):
-        self.set_state(self.STATE_Established)
         self.server.write(data)
+        self.set_state(self.STATE_Established)
+        self.server.on_client_established()
 
     def modify_udp_cmd_response(self, ver, rep):
         # 修改地址信息, 通知 socks 客户端由本地另一UPD端口转发数据

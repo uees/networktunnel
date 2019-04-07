@@ -11,7 +11,6 @@ from config import ConfigManager
 
 from networktunnel import constants, errors
 from networktunnel.base import BaseSocksServer
-from networktunnel.ciphers import TableManager, AES128CFB
 from networktunnel.helpers import get_method, parse_address
 from networktunnel.remote_client import BindProxyClientFactory, ProxyClient, UdpProxyClient
 from networktunnel.shadow import ShadowProtocol
@@ -22,14 +21,14 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
     def __init__(self):
         super().__init__()
 
-        self._auth_types = [constants.AUTH_ANONYMOUS, constants.AUTH_TOKEN]
+        self._auth_types = [constants.AUTH_TOKEN]
         self._auth_method = None
 
     def connectionMade(self):
         super().connectionMade()
         # self.set_state(self.STATE_AUTH)  # todo
         self.log('Connection made', self.peer_address)
-        self.setTimeout(self.factory.config.getTimeOut())
+        # self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
         self.log('Connection time', self.peer_address)
@@ -37,7 +36,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-        self.setTimeout(None)
+        # self.setTimeout(None)
         super().connectionLost(reason)
 
     def dataReceived(self, data):
@@ -48,7 +47,8 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             data = self.factory.shadow.decrypt_protocol_data(data)
 
         def reset_timeout(ignored):
-            self.resetTimeout()
+            # self.resetTimeout()
+            pass
 
         if self.is_state(self.STATE_ESTABLISHED):
             self.client.write(data)
@@ -85,9 +85,9 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
         self.transport.write(data)
 
     def on_bind_connect_success(self):
-        self.set_state(self.STATE_ESTABLISHED)
         # 第二个回复在预期的传入连接成功或失败之后发生
         self.make_reply(constants.SOCKS5_GRANTED, address=self.client.peer_address)
+        self.set_state(self.STATE_ESTABLISHED)
 
     # request
     # +----+----------+----------+
@@ -158,7 +158,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
             def on_success(result):
                 self.set_state(self.STATE_COMMAND)
-                self.transport.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
+                self.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
 
             dd.addCallback(on_success)
 
@@ -220,13 +220,13 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
         def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
-            self.set_state(self.STATE_ESTABLISHED)
-            self.setTimeout(None)  # 取消超时
+            # self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()
 
             self.make_reply(constants.SOCKS5_GRANTED, address=self.client.host_address)
+            self.set_state(self.STATE_ESTABLISHED)
 
         d.addCallback(success)
 
@@ -251,7 +251,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
             self.set_state(self.STATE_WAITING_CONNECTION)
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
-            self.setTimeout(None)  # 取消超时
+            # self.setTimeout(None)  # 取消超时
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
         # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
@@ -278,9 +278,9 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
         def reply(ignored):
             self.udp_client = UdpProxyClient(self, addr=(host, port), atyp=atyp)
             self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
-            self.set_state(self.STATE_ESTABLISHED)
             self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
-            self.setTimeout(None)  # 取消超时
+            self.set_state(self.STATE_ESTABLISHED)
+            # self.setTimeout(None)  # 取消超时
 
         d.addCallback(reply)
         return d
@@ -298,7 +298,7 @@ class SocksServerFactory(protocol.Factory):
         self.shadow = ShadowProtocol(
             key=conf.get('remote', 'key'),
             data_salt=conf.get('remote', 'data_salt'),
-            pro_salt=conf.get('remote', 'data_salt'),
-            data_cip_cls=TableManager,
-            pro_cip_cls=AES128CFB
+            pro_salt=conf.get('remote', 'pro_salt'),
+            data_cipher=conf.get('remote', 'data_cipher'),
+            pro_cipher=conf.get('remote', 'pro_cipher'),
         )

@@ -3,7 +3,6 @@ import struct
 
 from networktunnel import constants, errors
 
-
 # +----+------+----------+
 # | VER | ULEN | UTOKEN  |
 # +----+------+----------+
