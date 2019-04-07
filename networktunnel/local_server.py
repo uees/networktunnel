@@ -7,8 +7,10 @@ from twisted.internet.endpoints import clientFromString, connectProtocol
 from config import ConfigManager
 from networktunnel import constants, errors
 from networktunnel.base import BaseSocksServer
+from networktunnel.ciphers import TableManager, AES128CFB
 from networktunnel.helpers import parse_address
 from networktunnel.local_client import ProxyClient, UDPProxyClient
+from networktunnel.shadow import ShadowProtocol
 
 
 class TransferServer(BaseSocksServer):
@@ -139,8 +141,15 @@ class TransferServer(BaseSocksServer):
 class TransferServerFactory(protocol.Factory):
     protocol = TransferServer
 
-    def __init__(self, reactor, key):
+    def __init__(self, reactor):
         self.reactor = reactor
-        self.key = key
         self.num_protocols = 0
-        # self.crypto = crypt.MyCrypto(key)
+
+        conf = ConfigManager().default
+        self.shadow = ShadowProtocol(
+            key=conf.get('local', 'key'),
+            data_salt=conf.get('local', 'data_salt'),
+            pro_salt=conf.get('local', 'data_salt'),
+            data_cip_cls=TableManager,
+            pro_cip_cls=AES128CFB
+        )

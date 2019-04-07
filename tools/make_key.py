@@ -1,28 +1,35 @@
-# python -m tools.make_key
-
 import os
+import random
+import configparser
+import string
+import base64
+import binascii
 
-from Crypto import Random
-from Crypto.PublicKey import RSA
+from networktunnel.ciphers import AES128CFB, TableManager
 
 from settings import BASE_DIR
 
-key_dir = os.path.join(BASE_DIR, 'keys')
+
+def main():
+    parser = configparser.ConfigParser()
+    filepath = os.path.join(BASE_DIR, 'default.conf')
+    parser.read(filepath)
+
+    key = ''.join(random.sample(string.ascii_letters + string.digits, 16))
+    parser.set("local", "key", key)
+    parser.set("remote", "key", key)
+
+    aes_manager = AES128CFB('sdsdjsk')
+    salt = base64.b64encode(binascii.b2a_hex(aes_manager.random_iv()))
+    parser.set("local", "pro_salt", salt.decode())
+    parser.set("remote", "pro_salt", salt.decode())
+
+    parser.set("local", "data_salt", "keys/encrypt_password.pem")
+    parser.set("remote", "data_salt", "keys/decrypt_password.pem")
+
+    with open(filepath, 'w') as fp:
+        parser.write(fp)
 
 
-# 伪随机数生成器
-random_generator = Random.new().read
-
-# rsa算法生成实例
-rsa = RSA.generate(1024, random_generator)
-
-# master的秘钥对的生成
-private_pem = rsa.exportKey()
-
-# 生成公私钥对文件
-with open(os.path.join(key_dir, 'private.pem'), 'wb') as f:
-    f.write(private_pem)
-
-public_pem = rsa.publickey().exportKey()
-with open(os.path.join(key_dir, 'public.pem'), 'wb') as f:
-    f.write(public_pem)
+if __name__ == "__main__":
+    main()

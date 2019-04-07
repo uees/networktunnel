@@ -11,8 +11,10 @@ from config import ConfigManager
 
 from networktunnel import constants, errors
 from networktunnel.base import BaseSocksServer
+from networktunnel.ciphers import TableManager, AES128CFB
 from networktunnel.helpers import get_method, parse_address
 from networktunnel.remote_client import BindProxyClientFactory, ProxyClient, UdpProxyClient
+from networktunnel.shadow import ShadowProtocol
 
 
 class SocksServer(policies.TimeoutMixin, BaseSocksServer):
@@ -39,8 +41,11 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
         super().connectionLost(reason)
 
     def dataReceived(self, data):
-        # todo 解密
-        # data = self.factory.crypto.decrypt(data)
+        # 解密
+        if self.is_state(self.STATE_ESTABLISHED):
+            data = self.factory.shadow.decrypt_data(data)
+        else:
+            data = self.factory.shadow.decrypt_protocol_data(data)
 
         def reset_timeout(ignored):
             self.resetTimeout()
@@ -72,8 +77,11 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             self.on_error(errors.StateError())
 
     def write(self, data):
-        # todo 加密
-        # data = self.factory.crypto.encrypt(data)
+        # 加密
+        if self.is_state(self.STATE_ESTABLISHED):
+            data = self.factory.shadow.encrypt_data(data)
+        else:
+            data = self.factory.shadow.encrypt_protocol_data(data)
         self.transport.write(data)
 
     def on_bind_connect_success(self):
@@ -285,3 +293,12 @@ class SocksServerFactory(protocol.Factory):
         self.num_protocols = 0
         self.reactor = reactor
         self.config = ConfigManager()
+
+        conf = self.config.default
+        self.shadow = ShadowProtocol(
+            key=conf.get('remote', 'key'),
+            data_salt=conf.get('remote', 'data_salt'),
+            pro_salt=conf.get('remote', 'data_salt'),
+            data_cip_cls=TableManager,
+            pro_cip_cls=AES128CFB
+        )

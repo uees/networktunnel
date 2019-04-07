@@ -3,6 +3,19 @@ import struct
 
 from networktunnel import constants, errors
 
+
+# +----+------+----------+
+# | VER | ULEN | UTOKEN  |
+# +----+------+----------+
+# |  1 |  1   | 1 to 255 |
+# +----+------+----------+
+#
+# +----+---------+
+# | VER | STATUS |
+# +-----+--------+
+# |  1  |  1     |
+# +-----+--------+
+#
 # +----+-----+-------+------+----------+----------+
 # |VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
 # +----+-----+-------+------+----------+----------+
@@ -27,8 +40,7 @@ def socks_domain_host(host: (str, bytes)) -> bytes:
     return b''.join((struct.pack('!B', len(host)), host))
 
 
-def parse_address(atyp: int, data: bytes) -> tuple:
-    cur = 4
+def parse_address(atyp: int, data: bytes, cur: int = 4) -> tuple:
     if atyp == constants.ATYP_DOMAINNAME:
         domain_len = ord(data[cur:cur + 1])
         cur += 1
@@ -52,23 +64,28 @@ def parse_address(atyp: int, data: bytes) -> tuple:
     return domain, port
 
 
-def parse_udp_frame(data: bytes) -> tuple:
-    # rsv 保留字 忽略
-    rsv, frag, atyp = struct.unpack('!HBB', data[0:4])
-
-    host, port = parse_address(atyp, data)
-
+def udp_frame_header_length(atyp: int, data: bytes):
     if atyp == constants.ATYP_DOMAINNAME:
-        addr_length = ord(data[4:5]) + 1
+        domain_len = ord(data[4:5])
+        addr_len = domain_len + 1
     elif atyp == constants.ATYP_IPV4:
-        addr_length = 4
+        addr_len = 4
     elif atyp == constants.ATYP_IPV6:
-        addr_length = 16
+        addr_len = 16
     else:
         raise errors.AddressNotSupported("Unknown address type!")
 
-    data_buff_index = 4 + addr_length + 2
-    return frag, atyp, host, port, data[data_buff_index:]
+    header_len = 6 + addr_len
+
+    return header_len
+
+
+def parse_udp_frame(data: bytes) -> tuple:
+    # rsv 保留字 忽略
+    rsv, frag, atyp = struct.unpack('!HBB', data[0:4])
+    host, port = parse_address(atyp, data)
+    header_len = udp_frame_header_length(atyp, data)
+    return frag, atyp, host, port, data[header_len:]
 
 
 def create_udp_frame(frag: int, atyp: int, host: (str, bytes), port: int, data: bytes) -> bytes:

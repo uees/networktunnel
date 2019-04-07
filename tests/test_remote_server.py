@@ -8,16 +8,16 @@ from twisted.test import proto_helpers
 
 from networktunnel import constants
 from networktunnel.helpers import socks_domain_host
-from networktunnel.remote_server import RemoteSocksV5ServerFactory, RemoteSocksV5Server as Socks5
+from networktunnel.remote_server import SocksServerFactory, SocksServer as Socks5
 
 
-class RemoteSocksV5ServerTestCase(unittest.TestCase):
+class SocksServerTestCase(unittest.TestCase):
 
     def setUp(self):
-        # from twisted.internet.base import DelayedCall
-        # DelayedCall.debug = True
+        from twisted.internet.base import DelayedCall
+        DelayedCall.debug = True
 
-        factory = RemoteSocksV5ServerFactory(reactor)
+        factory = SocksServerFactory(reactor)
         self.proto = factory.buildProtocol(("127.0.0.1", 1080))
         self.tr = proto_helpers.StringTransport()
         self.proto.makeConnection(self.tr)
@@ -69,19 +69,3 @@ class RemoteSocksV5ServerTestCase(unittest.TestCase):
         ])
         self.proto.dataReceived(request)
         self.assertEqual(self.tr.value()[:2], struct.pack('!BB', 5, constants.SOCKS5_COMMAND_NOT_SUPPORTED))
-
-    def test_cmd_conn(self):
-        self.proto.set_state(Socks5.STATE_COMMAND)
-        #request = b''.join([
-        #    struct.pack('!4B', 5, constants.CMD_CONNECT, constants.RSV, constants.ATYP_DOMAINNAME),
-        #    b''.join([socks_domain_host('www.baidu.com'), struct.pack('!H', 80)])
-        #])
-
-        request = b''.join([
-            struct.pack('!4B', 5, constants.CMD_CONNECT, constants.RSV, constants.ATYP_IPV4),
-            b''.join([socket.inet_aton('127.0.0.1'), struct.pack('!H', 6000)])
-        ])
-
-        self.proto.dataReceived(request)
-        print(self.tr.value())
-        # self.assertEqual(self.tr.value()[:2], struct.pack('!BB', 5, constants.SOCKS5_SUCCEEDED))

@@ -60,7 +60,11 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def dataReceived(self, data):
         # 这里是接收到远程 socks 服务器的数据
-        # data = self.server.factory.crypto.decrypt(data)
+        # 首先解密
+        if self.is_state(self.STATE_ESTABLISHED):
+            data = self.server.factory.shadow.decrypt_data(data)
+        else:
+            data = self.server.factory.shadow.decrypt_protocol_data(data)
 
         if self.is_state(self.STATE_Established):
             # 转发， 命令确认后进入此状态
@@ -193,7 +197,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
         ])
 
     def write(self, data):
-        # data = self.server.factory.crypto.encrypt(data)
+        # 加密
+        if self.is_state(self.STATE_Established):
+            data = self.server.factory.shadow.encrypt_data(data)
+        else:
+            data = self.server.factory.shadow.encrypt_protocol_data(data)
+
         self.transport.write(data)
 
     def is_state(self, state):
@@ -221,10 +230,12 @@ class UDPProxyClient(protocol.DatagramProtocol):
 
     def datagramReceived(self, data, addr):
         if addr == self.origin_addr:
-            # todo 加密
+            # 加密
+            data = self.server.factory.shadow.encrypt_udp_data(data)
             self.transport.write(data, self.peer_addr)
         elif addr == self.peer_addr:
-            # todo 解密
+            # 解密
+            data = self.server.factory.shadow.decrypt_udp_data(data)
             self.transport.write(data, self.origin_addr)
 
     def connectionRefused(self):

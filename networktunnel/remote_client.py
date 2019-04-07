@@ -88,6 +88,8 @@ class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
             self.origin_addr: self.origin_atyp
         }
 
+        self.shadow = self.server.factory.shadow
+
     def startProtocol(self):
         self.host_address = self.transport.getHost()
 
@@ -107,11 +109,11 @@ class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
 
         data = create_udp_frame(0, atyp, host, port, data)
 
-        # todo 加密
+        data = self.shadow.encrypt_udp_data(data)
         self.transport.write(data, self.origin_addr)
 
     def receive_from_origin(self, data):
-        # todo 首先解密
+        data = self.shadow.decrypt_udp_data(data)
         # 解包 -> 发往目标服务器
         frag, atyp, host, port, buff = parse_udp_frame(data)
 

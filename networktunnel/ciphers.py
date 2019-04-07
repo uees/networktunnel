@@ -175,7 +175,7 @@ class AES192CFB(AES256CFB):
     KEY_SIZE = 24
 
 
-class ChaCha20Cipher(StreamCipher):
+class ChaCha20Manager(StreamCipher):
     KEY_SIZE = 32
     IV_SIZE = 8
 
@@ -183,7 +183,7 @@ class ChaCha20Cipher(StreamCipher):
         return ChaCha20.new(key=key, nonce=iv)
 
 
-class Salsa20Cipher(StreamCipher):
+class Salsa20Manager(StreamCipher):
     KEY_SIZE = 32
     IV_SIZE = 8
 
@@ -199,16 +199,41 @@ class RC4Cipher(StreamCipher):
         return ARC4.new(key=key)
 
 
-class RSACipher(object):
+class RSAManager(object):
 
-    def new_cipher(self, key, iv=None):
+    # static property, 避免重复读取文件
+    password = None
+
+    def __init__(self, password=None):
+        pass
+
+    def make_encrypter(self, file_path):
+        iv = None
+        cipher = self.new_cipher(file_path)
+
+        def encrypt(plaintext: bytes) -> bytes:
+            return cipher.encrypt(plaintext)
+
+        return iv, encrypt
+
+    def make_decrypter(self, file_path):
+        cipher = self.new_cipher(file_path)
+
+        def decrypt(cipher_text: bytes) -> bytes:
+            return cipher.decrypt(cipher_text, sentinel='ERROR')
+
+        return decrypt
+
+    def new_cipher(self, file_path, iv=None):
         # cipher has encrypt and decrypt methods
         # key is public.pem or private.pem file path
-        with open(key, 'r') as f:
-            key = f.read()
-            rsakey = RSA.importKey(key)  # 导入读取到的公钥
-            cipher = Cipher_pkcs1_v1_5.new(rsakey)  # 生成对象
-            return cipher
+        if not self.password:
+            with open(file_path, 'r') as f:
+                key = f.read()
+                self.password = RSA.importKey(key)  # 导入读取到的公钥
+
+        cipher = Cipher_pkcs1_v1_5.new(self.password)  # 生成对象
+        return cipher
 
 
 class TableCipher(object):
@@ -221,27 +246,33 @@ class TableCipher(object):
         return b''.join(encrypt_data)
 
     def decrypt(self, ciphertext: bytes, sentinel=None):
-        return self.encrypt(ciphertext)
+        try:
+            return self.encrypt(ciphertext)
+        except Exception:
+            return sentinel
 
 
-class Table(object):
+class TableManager(RSAManager):
 
-    def new_cipher(self, key, iv=None):
-        with open(key, 'r') as fp:
-            password = json.load(fp)
-            return TableCipher(password)
+    def new_cipher(self, file_path, iv=None):
+        if not self.password:
+            with open(file_path, 'r') as fp:
+                self.password = json.load(fp)
+
+        cipher = TableCipher(self.password)
+        return cipher
 
 
 ciphers = {
     "aes-256-cfb": AES256CFB,
     "aes-128-cfb": AES128CFB,
     "aes-192-cfb": AES192CFB,
-    "chacha20": ChaCha20Cipher,
-    "salsa20": Salsa20Cipher,
+    "chacha20": ChaCha20Manager,
+    "salsa20": Salsa20Manager,
     "rc4": RC4Cipher,
     "aes-256-gcm": AES256GCM,
     "aes-192-gcm": AES192GCM,
     "aes-128-gcm": AES128GCM,
-    "rsa": RSACipher,
-    "table": Table,
+    "rsa": RSAManager,
+    "table": TableManager,
 }
