@@ -45,7 +45,11 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.transport.registerProducer(self.server.transport, True)
         self.server.transport.registerProducer(self.transport, True)
 
-        self.sendInitialHandshake()
+        # self.sendInitialHandshake()
+
+        # next 2 line do 直接从认证开始
+        self.set_state(self.STATE_ReceivedInitialHandshakeResponse)
+        self.sendAuthentication()
 
     def connectionLost(self, reason):
         self.set_state(self.STATE_Disconnected)
@@ -83,9 +87,9 @@ class ProxyClient(protocol.Protocol, LogMixin):
             self.receiveRemoteConnection(data)
 
     def sendInitialHandshake(self):
-        self.set_state(self.STATE_SentInitialHandshake)
         request = struct.pack('!BBB', constants.SOCKS5_VER, 1, constants.AUTH_TOKEN)
         self.write(request)
+        self.set_state(self.STATE_SentInitialHandshake)
 
     def receiveInitialHandshakeResponse(self, data):
         self.set_state(self.STATE_ReceivedInitialHandshakeResponse)
@@ -102,11 +106,11 @@ class ProxyClient(protocol.Protocol, LogMixin):
             self.sendAuthentication()
 
     def sendAuthentication(self):
-        self.set_state(self.STATE_SentAuthentication)
         conf = ConfigManager().default
         token = conf.get('local', 'token', fallback='').encode()
         request = b''.join([struct.pack('!BB', constants.SOCKS5_VER, len(token)), token])
         self.write(request)
+        self.set_state(self.STATE_SentAuthentication)
 
     def receivedAuthenticationResponse(self, data):
         self.set_state(self.STATE_ReceivedAuthenticationResponse)
@@ -130,9 +134,9 @@ class ProxyClient(protocol.Protocol, LogMixin):
     # | 1  |  1  | X'00' |  1   | Variable |    2     |
     # +----+-----+-------+------+----------+----------+
     def sendCommand(self, data):
-        self.set_state(self.STATE_SentCommand)
         self.request_cmd = ord(data[1:2])
         self.write(data)
+        self.set_state(self.STATE_SentCommand)
 
     # +----+-----+-------+------+----------+----------+
     # | VER | REP | RSV | ATYP | BND.ADDR | BND.PORT |
@@ -167,8 +171,6 @@ class ProxyClient(protocol.Protocol, LogMixin):
                 self.server.write(data)
                 self.set_state(self.STATE_Established)
                 self.server.on_client_established()
-
-            self.request_cmd = None  # 重置 cmd
         else:
             self.server.write(data)
             self.set_state(self.STATE_Error)

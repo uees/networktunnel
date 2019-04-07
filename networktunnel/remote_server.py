@@ -26,9 +26,13 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
     def connectionMade(self):
         super().connectionMade()
-        # self.set_state(self.STATE_AUTH)  # todo
+
+        # next 2 line do 直接从认证开始
+        self.set_state(self.STATE_AUTH)
+        self._auth_method = constants.AUTH_TOKEN
+
         self.log('Connection made', self.peer_address)
-        # self.setTimeout(self.factory.config.getTimeOut())
+        self.setTimeout(self.factory.config.getTimeOut())
 
     def timeoutConnection(self):
         self.log('Connection time', self.peer_address)
@@ -36,7 +40,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-        # self.setTimeout(None)
+        self.setTimeout(None)
         super().connectionLost(reason)
 
     def dataReceived(self, data):
@@ -47,8 +51,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             data = self.factory.shadow.decrypt_protocol_data(data)
 
         def reset_timeout(ignored):
-            # self.resetTimeout()
-            pass
+            self.resetTimeout()
 
         if self.is_state(self.STATE_ESTABLISHED):
             self.client.write(data)
@@ -119,11 +122,12 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
                 raise errors.NoAcceptableMethods()
 
             if self._auth_method == constants.AUTH_ANONYMOUS:
-                self.set_state(self.STATE_COMMAND)
+                next_state = self.STATE_COMMAND
             else:
-                self.set_state(self.STATE_AUTH)
+                next_state = self.STATE_AUTH
 
             self.write(struct.pack('!BB', self._version, self._auth_method))
+            self.set_state(next_state)
 
         d.addCallback(negotiate)
 
@@ -157,8 +161,8 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             dd = auth_token(token)
 
             def on_success(result):
-                self.set_state(self.STATE_COMMAND)
                 self.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
+                self.set_state(self.STATE_COMMAND)
 
             dd.addCallback(on_success)
 
@@ -220,7 +224,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
         def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
-            # self.setTimeout(None)  # 取消超时
+            self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()
@@ -249,9 +253,9 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
         def first_reply(listening_port):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
-            self.set_state(self.STATE_WAITING_CONNECTION)
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
-            # self.setTimeout(None)  # 取消超时
+            self.set_state(self.STATE_WAITING_CONNECTION)
+            self.setTimeout(None)  # 取消超时
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
         # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
@@ -280,7 +284,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
             self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
             self.set_state(self.STATE_ESTABLISHED)
-            # self.setTimeout(None)  # 取消超时
+            self.setTimeout(None)  # 取消超时
 
         d.addCallback(reply)
         return d

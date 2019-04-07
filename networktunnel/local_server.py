@@ -43,12 +43,13 @@ class TransferServer(BaseSocksServer):
             self.on_error(errors.StateError())
 
     def on_client_auth_ok(self):
-        self.set_state(self.STATE_COMMAND)
         self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
+        self.set_state(self.STATE_COMMAND)
         self.transport.resumeProducing()
 
     def on_client_auth_error(self):
         self.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
+        self.set_state(self.STATE_ERROR)
         self.transport.resumeProducing()
         self.transport.loseConnection()
 
