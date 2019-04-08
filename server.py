@@ -1,6 +1,5 @@
 import platform
 
-from twisted.internet import reactor
 from twisted.internet.endpoints import TCP4ServerEndpoint
 
 from config import ConfigManager
@@ -18,8 +17,10 @@ elif platform.system() == 'Windows':
 
 
 def main():
+    from twisted.internet import reactor
+
     conf = ConfigManager().default
-    if conf.getboolean('remote', 'debug', True):
+    if conf.getboolean('remote', 'debug', fallback=True):
         from twisted.python import log
         import sys
 

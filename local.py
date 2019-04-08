@@ -1,6 +1,5 @@
 import platform
 
-from twisted.internet import reactor
 from twisted.internet.endpoints import TCP4ServerEndpoint
 
 from config import ConfigManager
@@ -18,9 +17,11 @@ elif platform.system() == 'Windows':
 
 
 def main():
+    from twisted.internet import reactor
+
     cfg = ConfigManager().default
 
-    if cfg.getboolean('local', 'debug', True):
+    if cfg.getboolean('local', 'debug', fallback=True):
         from twisted.python import log
         import sys
 
