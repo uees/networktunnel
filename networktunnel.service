@@ -5,12 +5,12 @@ After=syslog.target network.target remote-fs.target nss-lookup.target
 
 [Service]
 Type=forking
-PIDFile=/run/networktunnel.pid
 ExecStartPre=
-ExecStart=/root/.pyenv/shims/python3.7 /opt/networktunnel/server.py
+ExecStart=/root/.pyenv/shims/twistd -y /opt/networktunnel/server.tac
 ExecReload=/bin/kill -s HUP $MAINPID
 ExecStop=/bin/kill -s QUIT $MAINPID
 PrivateTmp=true
+Restart=always
 
 [Install]
 WantedBy=multi-user.target
