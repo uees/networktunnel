@@ -286,9 +286,8 @@ class SocksServerFactory(protocol.Factory):
     def __init__(self, reactor):
         self.num_protocols = 0
         self.reactor = reactor
-        self.config = ConfigManager()
 
-        conf = self.config.default
+        conf = ConfigManager().default
         self.shadow = ShadowProtocol(
             key=conf.get('remote', 'key'),
             data_salt=conf.get('remote', 'data_salt'),

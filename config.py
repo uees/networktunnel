@@ -35,34 +35,7 @@ class ConfigManager(object):
         return parser
 
     def getTimeOut(self):
-        return self.default.getint('remote', 'timeout', fallback=30)
-
-    def getConnectionsLimit(self):
-        return self.default.getint('remote', 'connectionslimit', fallback=100)
-
-    def getListenInterface(self):
-        return self.default.get('remote', 'listeninterface', fallback='')
-
-    def getSocksAuth(self):
-        return self.default.getboolean('remote', 'socksauth', fallback=True)
-
-    def getAuthApi(self):
-        return self.default.get('remote', 'AuthApi', fallback='')
-
-    def getAllowInsPeers(self):
-        return self.default.get('remote', 'AllowInsPeers', fallback='')
-
-    def getAllowOutPeers(self):
-        return self.default.get('remote', 'AllowOutPeers', fallback='')
-
-    def getProtocols(self):
-        return self.default.get('remote', 'Protocols', fallback='socks5')
-
-    def getDebug(self):
-        return self.default.getboolean('remote', 'Debug', fallback=True)
+        return self.default.getint('default', 'timeout', fallback=30)
 
     def getLogLevel(self):
-        return self.default.getint('remote', 'LogLevel', fallback=4)
-
-    def getServerPort(self):
-        return self.default.getint('remote', 'ServerPort', fallback=6778)
+        return self.default.getint('default', 'LogLevel', fallback=4)
