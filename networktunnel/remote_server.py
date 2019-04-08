@@ -5,7 +5,6 @@ import struct
 from twisted.internet import defer, protocol
 from twisted.internet.endpoints import (clientFromString, connectProtocol,
                                         serverFromString)
-from twisted.protocols import policies
 
 from config import ConfigManager
 
@@ -16,7 +15,7 @@ from networktunnel.remote_client import BindProxyClientFactory, ProxyClient, Udp
 from networktunnel.shadow import ShadowProtocol
 
 
-class SocksServer(policies.TimeoutMixin, BaseSocksServer):
+class SocksServer(BaseSocksServer):
 
     def __init__(self):
         super().__init__()
@@ -32,15 +31,9 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
         self._auth_method = constants.AUTH_TOKEN
 
         self.log('Connection made', self.peer_address)
-        self.setTimeout(self.factory.config.getTimeOut())
-
-    def timeoutConnection(self):
-        self.log('Connection time', self.peer_address)
-        super().timeoutConnection()
 
     def connectionLost(self, reason):
         self.log('Connection lost', self.peer_address, reason.getErrorMessage())
-        self.setTimeout(None)
         super().connectionLost(reason)
 
     def dataReceived(self, data):
@@ -51,7 +44,7 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             data = self.factory.shadow.decrypt_protocol_data(data)
 
         def reset_timeout(ignored):
-            self.resetTimeout()
+            pass
 
         if self.is_state(self.STATE_ESTABLISHED):
             self.client.write(data)
@@ -224,7 +217,6 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
 
         def success(ignored):
             self.log("connect to {}, {}".format(domain, port))
-            self.setTimeout(None)  # 取消超时
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()
@@ -255,7 +247,6 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
             self.set_state(self.STATE_WAITING_CONNECTION)
-            self.setTimeout(None)  # 取消超时
 
         endpoint = serverFromString(self.factory.reactor, f"tcp:{port}:interface={host}")
         # https://twistedmatrix.com/documents/current/api/twisted.internet.interfaces.IStreamServerEndpoint.html#listen
@@ -284,7 +275,6 @@ class SocksServer(policies.TimeoutMixin, BaseSocksServer):
             self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
             self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
             self.set_state(self.STATE_ESTABLISHED)
-            self.setTimeout(None)  # 取消超时
 
         d.addCallback(reply)
         return d
