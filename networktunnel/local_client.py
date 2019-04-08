@@ -1,16 +1,18 @@
 import socket
 import struct
 
+from twisted.logger import Logger
 from twisted.internet import protocol
 from twisted.internet.address import IPv4Address, IPv6Address
 
 from config import ConfigManager
 from networktunnel import constants
 from networktunnel.helpers import parse_address, socks_domain_host
-from networktunnel.logger import LogMixin
+
+log = Logger()
 
 
-class ProxyClient(protocol.Protocol, LogMixin):
+class ProxyClient(protocol.Protocol):
     """
     此客户端只需要完成协议的验证阶段
     """
@@ -41,7 +43,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.set_state(self.STATE_Connected)
         self.peer_address = self.transport.getPeer()
         self.host_address = self.transport.getHost()
-        self.log('Connection made', self.peer_address)
+        log.info('Connection made {address}', address=self.peer_address)
 
         self.transport.registerProducer(self.server.transport, True)
         self.server.transport.registerProducer(self.transport, True)
@@ -54,13 +56,16 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def connectionLost(self, reason):
         self.set_state(self.STATE_Disconnected)
-        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
+
+        log.info('Connection lost {address}, message: {message}',
+                 address=self.peer_address,
+                 message=reason.getErrorMessage())
 
         if self.server is not None and self.server.transport:
             self.server.transport.loseConnection()
             self.server = None
 
-        self.log(f"Unable to connect to peer: {reason}")
+        log.info(f"Unable to connect to peer: {reason}")
 
     def dataReceived(self, data):
         # 这里是接收到远程 socks 服务器的数据
@@ -89,10 +94,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
 
     def sendInitialHandshake(self):
         request = struct.pack('!BBB', constants.SOCKS5_VER, 1, constants.AUTH_TOKEN)
+        log.debug('sendInitialHandshake {data!r}', data=request)
         self.write(request)
         self.set_state(self.STATE_SentInitialHandshake)
 
     def receiveInitialHandshakeResponse(self, data):
+        log.debug('receiveInitialHandshakeResponse {data!r}', data=data)
         self.set_state(self.STATE_ReceivedInitialHandshakeResponse)
 
         try:
@@ -101,7 +108,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
             method = constants.NO_ACCEPTABLE_METHODS
 
         if method != constants.AUTH_TOKEN:
-            self.log('Unsupported methods!')
+            log.error('Unsupported methods!')
             self.transport.loseConnection()
         else:
             self.sendAuthentication()
@@ -110,10 +117,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
         conf = ConfigManager().default
         token = conf.get('local', 'token', fallback='').encode()
         request = b''.join([struct.pack('!BB', constants.SOCKS5_VER, len(token)), token])
+        log.debug('sendAuthentication {data!r}', data=request)
         self.write(request)
         self.set_state(self.STATE_SentAuthentication)
 
     def receivedAuthenticationResponse(self, data):
+        log.debug('receivedAuthenticationResponse {data!r}', data=data)
         self.set_state(self.STATE_ReceivedAuthenticationResponse)
         try:
             _, status = struct.unpack('!BB', data)
@@ -135,6 +144,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
     # | 1  |  1  | X'00' |  1   | Variable |    2     |
     # +----+-----+-------+------+----------+----------+
     def sendCommand(self, data):
+        log.debug('sendCommand {data!r}', data=data)
         self.request_cmd = ord(data[1:2])
         self.write(data)
         self.set_state(self.STATE_SentCommand)
@@ -145,6 +155,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
     # |  1 |  1  | X'00' |  1   | Variable | 2       |
     # +----+-----+-------+------+----------+----------+
     def receiveCommandResponse(self, data):
+        log.debug('receiveCommandResponse {data!r}', data=data)
         self.set_state(self.STATE_ReceivedCommandResponse)
 
         try:
@@ -178,6 +189,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
             self.transport.loseConnection()
 
     def receiveRemoteConnection(self, data):
+        log.debug('receiveRemoteConnection {data!r}', data=data)
         self.server.write(data)
         self.set_state(self.STATE_Established)
         self.server.on_client_established()
@@ -232,6 +244,7 @@ class UDPProxyClient(protocol.DatagramProtocol):
 
     def startProtocol(self):
         self.address = self.transport.getHost()
+        log.info('start udp {address}', address=self.address)
 
     def datagramReceived(self, data, addr):
         if addr == self.origin_addr:
@@ -245,7 +258,7 @@ class UDPProxyClient(protocol.DatagramProtocol):
 
     def connectionRefused(self):
         # 如果没有服务器监听我们发送到的地址，则调用。
-        self.log('some udp data lose')
+        log.debug('some udp data lose')
 
     def set_peer(self, addr, atyp):
         self.peer_addr = addr

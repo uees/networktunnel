@@ -1,2 +1,4 @@
 twisted==18.9.0
 pycryptodome==3.8.1
+pyOpenSSL==19.0.0
+service-identity==18.1.0

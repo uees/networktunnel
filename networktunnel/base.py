@@ -1,15 +1,15 @@
 import socket
 import struct
 
+from twisted.logger import Logger
 from twisted.internet import defer, protocol
 from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
 
 from networktunnel import constants, errors
 from networktunnel.helpers import socks_domain_host
-from networktunnel.logger import LogMixin
 
 
-class BaseSocksServer(LogMixin, protocol.Protocol):
+class BaseSocksServer(protocol.Protocol):
     STATE_METHODS = 0x01  # 协商认证方法
     STATE_AUTH = 0x02  # 认证中
     STATE_COMMAND = 0x03  # 解析命令
@@ -17,8 +17,10 @@ class BaseSocksServer(LogMixin, protocol.Protocol):
     STATE_ESTABLISHED = 0x05  # 成功
     STATE_DISCONNECTED = 0x06
     STATE_ERROR = 0xff
+    log = None
 
     def __init__(self):
+        self.log = Logger()
         self.peer_address = None
         self.host_address = None
         self.client = None
@@ -53,13 +55,15 @@ class BaseSocksServer(LogMixin, protocol.Protocol):
 
     def check_version(self, ver: int):
         if ver != self._version:
-            self.log(f'Wrong version from {self.peer_address}')
+            self.log.warn(f'Wrong version from {self.peer_address}')
             return defer.fail(errors.InvalidServerVersion())
 
         return defer.succeed(True)
 
     def on_error(self, failure):
         self.set_state(self.STATE_ERROR)
+
+        self.log.failure('has an error', failure=failure)
 
         # failure.value is the exception instance responsible for this failure.
         if isinstance(failure, Exception):

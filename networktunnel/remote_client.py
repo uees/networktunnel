@@ -1,10 +1,12 @@
 from twisted.internet import protocol
 
+from twisted.logger import Logger
 from networktunnel.helpers import create_udp_frame, parse_udp_frame
-from networktunnel.logger import LogMixin
+
+log = Logger()
 
 
-class ProxyClient(protocol.Protocol, LogMixin):
+class ProxyClient(protocol.Protocol):
 
     def __init__(self, server):
         self.server = server
@@ -15,7 +17,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
     def connectionMade(self):
         self.peer_address = self.transport.getPeer()
         self.host_address = self.transport.getHost()
-        self.log('Connection made', self.peer_address)
+        log.info('Connection made {address}', address=self.peer_address)
 
         # Wire this and the peer transport together to enable
         # flow control (this stops connections from filling
@@ -27,10 +29,12 @@ class ProxyClient(protocol.Protocol, LogMixin):
         # For FAST transfer
         # self.server.dataReceived, self.dataReceived = self.write, self.server.write
 
-        self.log(f'Connect ok to {self.peer_address} request from {self.server.transport.getPeer()}')
+        log.info(f'Connect ok to {self.peer_address} request from {self.server.transport.getPeer()}')
 
     def connectionLost(self, reason):
-        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
+        log.info('Connection lost {address} {message}',
+                 address=self.peer_address,
+                 message=reason.getErrorMessage())
         if self.server is not None and self.server.transport:
             self.server.transport.loseConnection()
             self.server = None
@@ -42,7 +46,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class BindProxyClient(protocol.Protocol, LogMixin):
+class BindProxyClient(protocol.Protocol):
     def __init__(self, factory, server):
         self.factory = factory
         self.server = server
@@ -53,7 +57,7 @@ class BindProxyClient(protocol.Protocol, LogMixin):
     def connectionMade(self):
         self.peer_address = self.transport.getPeer()
         self.host_address = self.transport.getHost()
-        self.log(f'wait connect from {self.peer_address}')
+        log.info(f'wait connect from {self.peer_address}')
 
         self.transport.registerProducer(self.server.transport, True)
         self.server.transport.registerProducer(self.transport, True)
@@ -63,7 +67,7 @@ class BindProxyClient(protocol.Protocol, LogMixin):
         self.on_bind_connect_success()
 
     def connectionLost(self, reason):
-        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
+        log.info(f'Connection lost {self.peer_address} {reason.getErrorMessage()}')
         if self.server is not None and self.server.transport:
             self.server.transport.loseConnection()
             self.server = None
@@ -75,7 +79,7 @@ class BindProxyClient(protocol.Protocol, LogMixin):
         self.transport.write(data)
 
 
-class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
+class UdpProxyClient(protocol.DatagramProtocol):
     def __init__(self, server, addr, atyp):
         self.server = server
         self.server.client = self
@@ -91,9 +95,11 @@ class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
 
     def startProtocol(self):
         self.host_address = self.transport.getHost()
+        log.info(f'upd start {self.host_address}')
 
     def datagramReceived(self, data, addr):
         if addr not in self.allowed_address:
+            log.debug('drop data form: {addr}', addr=addr)
             return
 
         if addr == self.origin_addr:

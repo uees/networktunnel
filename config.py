@@ -1,6 +1,7 @@
 import os
-
 import configparser
+
+from twisted.logger import LogLevel
 
 from settings import BASE_DIR
 
@@ -38,4 +39,4 @@ class ConfigManager(object):
         return self.default.getint('default', 'timeout', fallback=30)
 
     def getLogLevel(self):
-        return self.default.getint('default', 'LogLevel', fallback=4)
+        return LogLevel.levelWithName(self.default.get('default', 'loglevel', fallback='debug'))

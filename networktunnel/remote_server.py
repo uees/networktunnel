@@ -30,10 +30,12 @@ class SocksServer(BaseSocksServer):
         self.set_state(self.STATE_AUTH)
         self._auth_method = constants.AUTH_TOKEN
 
-        self.log('Connection made', self.peer_address)
+        self.log.info('Connection made {address}', address=self.peer_address)
 
     def connectionLost(self, reason):
-        self.log('Connection lost', self.peer_address, reason.getErrorMessage())
+        self.log.info('Connection lost {address} {message}',
+                      address=self.peer_address,
+                      message=reason.getErrorMessage())
         super().connectionLost(reason)
 
     def dataReceived(self, data):
@@ -50,10 +52,12 @@ class SocksServer(BaseSocksServer):
             self.client.write(data)
 
         elif self.is_state(self.STATE_METHODS):
+            self.log.info('Start negotiating the certification method')
             d = self.negotiate_methods(data)
             d.addCallbacks(reset_timeout, self.on_error)
 
         elif self.is_state(self.STATE_AUTH):
+            self.log.info('Start auth')
             if self._auth_method == constants.AUTH_TOKEN:
                 d = self.auth_token(data)
                 d.addCallbacks(reset_timeout, self.on_error)
@@ -62,13 +66,14 @@ class SocksServer(BaseSocksServer):
                 self.on_error(errors.LoginAuthenticationFailed())
 
         elif self.is_state(self.STATE_COMMAND):
+            self.log.info('Parse the request command')
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
         elif self.is_state(self.STATE_WAITING_CONNECTION):
             # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
             # 这个状态下等待 remote target 的数据
-            pass
+            self.log.debug('Waiting for target connection')
         else:
             self.on_error(errors.StateError())
 
@@ -82,6 +87,7 @@ class SocksServer(BaseSocksServer):
 
     def on_bind_connect_success(self):
         # 第二个回复在预期的传入连接成功或失败之后发生
+        self.log.info('Second response received with bind cmd')
         self.make_reply(constants.SOCKS5_GRANTED, address=self.client.peer_address)
         self.set_state(self.STATE_ESTABLISHED)
 
@@ -216,7 +222,7 @@ class SocksServer(BaseSocksServer):
         d = connectProtocol(point, ProxyClient(self))
 
         def success(ignored):
-            self.log("connect to {}, {}".format(domain, port))
+            self.log.info("connect to {domain}, {port}", domain=domain, port=port)
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()

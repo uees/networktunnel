@@ -1,10 +1,5 @@
 import platform
 
-from twisted.internet.endpoints import TCP4ServerEndpoint
-
-from config import ConfigManager
-from networktunnel.local_server import TransferServerFactory
-
 if platform.system() == 'Linux':
     from twisted.internet import epollreactor
 
@@ -15,10 +10,14 @@ elif platform.system() == 'Windows':
 
     iocpreactor.install()
 
+from twisted.internet.endpoints import TCP4ServerEndpoint
+from twisted.internet import reactor
+
+from config import ConfigManager
+from networktunnel.local_server import TransferServerFactory
+
 
 def main():
-    from twisted.internet import reactor
-
     cfg = ConfigManager().default
 
     if cfg.getboolean('local', 'debug', fallback=True):

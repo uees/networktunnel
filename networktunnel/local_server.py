@@ -7,7 +7,6 @@ from twisted.internet.endpoints import clientFromString, connectProtocol
 from config import ConfigManager
 from networktunnel import constants, errors
 from networktunnel.base import BaseSocksServer
-from networktunnel.ciphers import AES128CFB, TableManager
 from networktunnel.helpers import parse_address
 from networktunnel.local_client import ProxyClient, UDPProxyClient
 from networktunnel.shadow import ShadowProtocol
@@ -25,38 +24,45 @@ class TransferServer(BaseSocksServer):
 
         elif self.is_state(self.STATE_METHODS):
             # 这个状态下开始建立本地端口转发客户端
+            self.log.info('Start negotiating the certification method')
             self.negotiate_methods(data).addErrback(self.on_error)
 
         elif self.is_state(self.STATE_AUTH):
+            self.log.info('Start auth')
             # 本地端口转换服务没有设计认证, 始终不会有这个状态
             pass
 
         elif self.is_state(self.STATE_COMMAND):
+            self.log.info('Parse the command')
             # 这个状态下已经建立了端口转发客户端
             self.parse_command(data).addErrback(self.on_error)
 
         elif self.is_state(self.STATE_WAITING_CONNECTION):
             # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
             # 这个状态下等待 remote target 的数据
-            pass
+            self.log.debug('Waiting for connection')
         else:
             self.on_error(errors.StateError())
 
     def on_client_auth_ok(self):
+        self.log.info('client authentication success')
         self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
         self.set_state(self.STATE_COMMAND)
         self.transport.resumeProducing()
 
     def on_client_auth_error(self):
+        self.log.info('client authentication failure')
         self.write(struct.pack('!BB', self._version, constants.NO_ACCEPTABLE_METHODS))
         self.set_state(self.STATE_ERROR)
         self.transport.resumeProducing()
         self.transport.loseConnection()
 
     def on_bind_first_reply(self):
+        self.log.info('First response received with bind cmd')
         self.set_state(self.STATE_WAITING_CONNECTION)
 
     def on_client_established(self):
+        self.log.info('Second response received with bind cmd')
         self.set_state(self.STATE_ESTABLISHED)
 
     def negotiate_methods(self, data: bytes):
@@ -141,6 +147,7 @@ class TransferServer(BaseSocksServer):
 
 class TransferServerFactory(protocol.Factory):
     protocol = TransferServer
+    reactor = None
 
     def __init__(self, reactor):
         self.reactor = reactor

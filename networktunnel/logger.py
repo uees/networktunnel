@@ -1,12 +1,22 @@
-from twisted.python import log
+from twisted.logger import formatEventAsClassicLogText, formatTime, timeFormatRFC3339, FileLogObserver
 
 from config import ConfigManager
 
 config = ConfigManager()
 
 
-class LogMixin:
-    @staticmethod
-    def log(*message, **event):
-        if config.getLogLevel() >= 3:
-            log.msg(*message, **event)
+def textFileLogObserver(outFile, timeFormat=timeFormatRFC3339):
+    config_level = config.getLogLevel()
+
+    def formatEvent(event):
+        log_level = event.get('log_level')
+
+        if log_level is not None and log_level < config_level:
+            # 比配置级别低的日志直接丢弃
+            return None
+
+        return formatEventAsClassicLogText(
+            event, formatTime=lambda e: formatTime(e, timeFormat)
+        )
+
+    return FileLogObserver(outFile, formatEvent)
