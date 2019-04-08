@@ -10,6 +10,8 @@ from Crypto.Hash.SHA1 import SHA1Hash
 from Crypto.Protocol.KDF import HKDF
 from Crypto.PublicKey import RSA
 
+from settings import BASE_DIR
+
 
 class BaseCipher:
     def __init__(self, password: str):
@@ -229,7 +231,7 @@ class RSAManager(object):
         # cipher has encrypt and decrypt methods
         # key is public.pem or private.pem file path
         if not self._key:
-            with open(file_path, 'r') as f:
+            with open(os.path.join(BASE_DIR, file_path), 'r') as f:
                 key = f.read()
                 self._key = RSA.importKey(key)  # 导入读取到的公钥
 
@@ -258,7 +260,7 @@ class TableManager(RSAManager):
 
     def new_cipher(self, file_path, iv=None):
         if not self._key:
-            with open(file_path, 'r') as fp:
+            with open(os.path.join(BASE_DIR, file_path), 'r') as fp:
                 self._key = json.load(fp)
                 self._cipher = TableCipher(self._key)
 

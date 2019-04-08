@@ -79,6 +79,7 @@ class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
     def __init__(self, server, addr, atyp):
         self.server = server
         self.server.client = self
+        self.shadow = self.server.factory.shadow
 
         self.origin_addr = addr
         self.origin_atyp = atyp
@@ -87,8 +88,6 @@ class UdpProxyClient(protocol.DatagramProtocol, LogMixin):
         self.allowed_address = {
             self.origin_addr: self.origin_atyp
         }
-
-        self.shadow = self.server.factory.shadow
 
     def startProtocol(self):
         self.host_address = self.transport.getHost()

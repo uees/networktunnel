@@ -32,6 +32,7 @@ class ProxyClient(protocol.Protocol, LogMixin):
         self.set_state(self.STATE_Created)
         self.server = server
         self.server.client = self
+        self.shadow = self.server.factory.shadow
         self.peer_address = None
         self.host_address = None
         self.request_cmd = None
@@ -65,9 +66,9 @@ class ProxyClient(protocol.Protocol, LogMixin):
         # 这里是接收到远程 socks 服务器的数据
         # 首先解密
         if self.is_state(self.STATE_Established):
-            data = self.server.factory.shadow.decrypt_data(data)
+            data = self.shadow.decrypt_data(data)
         else:
-            data = self.server.factory.shadow.decrypt_protocol_data(data)
+            data = self.shadow.decrypt_protocol_data(data)
 
         if self.is_state(self.STATE_Established):
             # 转发， 命令确认后进入此状态
@@ -202,9 +203,9 @@ class ProxyClient(protocol.Protocol, LogMixin):
     def write(self, data):
         # 加密
         if self.is_state(self.STATE_Established):
-            data = self.server.factory.shadow.encrypt_data(data)
+            data = self.shadow.encrypt_data(data)
         else:
-            data = self.server.factory.shadow.encrypt_protocol_data(data)
+            data = self.shadow.encrypt_protocol_data(data)
 
         self.transport.write(data)
 
@@ -220,6 +221,7 @@ class UDPProxyClient(protocol.DatagramProtocol):
 
     def __init__(self, server, addr, atyp):
         self.server = server
+        self.shadow = self.server.factory.shadow
         self.address = None
 
         self.origin_addr = addr  # socks client
@@ -234,11 +236,11 @@ class UDPProxyClient(protocol.DatagramProtocol):
     def datagramReceived(self, data, addr):
         if addr == self.origin_addr:
             # 加密
-            data = self.server.factory.shadow.encrypt_udp_data(data)
+            data = self.shadow.encrypt_udp_data(data)
             self.transport.write(data, self.peer_addr)
         elif addr == self.peer_addr:
             # 解密
-            data = self.server.factory.shadow.decrypt_udp_data(data)
+            data = self.shadow.decrypt_udp_data(data)
             self.transport.write(data, self.origin_addr)
 
     def connectionRefused(self):

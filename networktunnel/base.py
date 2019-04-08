@@ -96,8 +96,6 @@ class BaseSocksServer(LogMixin, protocol.Protocol):
             b''.join([addr, struct.pack('!H', address.port)])
         ])
 
-        print(response)
-
         self.write(response)
 
     def write(self, data):

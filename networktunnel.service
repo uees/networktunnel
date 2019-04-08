@@ -1,0 +1,16 @@
+[Unit]
+Description=networktunnel a hight speed proxy
+Documentation=https://github.com/uees/networktunnel
+After=syslog.target network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+PIDFile=/run/networktunnel.pid
+ExecStartPre=
+ExecStart=/root/.pyenv/shims/python3.7 /opt/networktunnel/server.py
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
