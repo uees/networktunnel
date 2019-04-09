@@ -25,7 +25,7 @@ from networktunnel.service import TunnelService
 conf = ConfigManager().default
 
 
-def application():
+def get_application():
     logfile = DailyLogFile("networktunnel.log", BASE_DIR)
 
     application = service.Application("networktunnel")
