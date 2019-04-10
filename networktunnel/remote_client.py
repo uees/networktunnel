@@ -1,6 +1,6 @@
 from twisted.internet import protocol
-
 from twisted.logger import Logger
+
 from networktunnel.helpers import create_udp_frame, parse_udp_frame
 
 log = Logger()

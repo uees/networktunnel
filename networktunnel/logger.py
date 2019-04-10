@@ -1,4 +1,5 @@
-from twisted.logger import formatEventAsClassicLogText, formatTime, timeFormatRFC3339, FileLogObserver
+from twisted.logger import (FileLogObserver, formatEventAsClassicLogText,
+                            formatTime, timeFormatRFC3339)
 
 from config import ConfigManager
 

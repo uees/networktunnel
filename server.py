@@ -10,17 +10,17 @@ elif platform.system() == 'Windows':
 
     iocpreactor.install()
 
+from twisted.application import internet, service
+from twisted.internet import reactor
 from twisted.internet.endpoints import TCP4ServerEndpoint
-from twisted.application import service, internet
 from twisted.logger import ILogObserver
 from twisted.python.logfile import DailyLogFile
-from twisted.internet import reactor
 
 from config import ConfigManager
-from settings import BASE_DIR
-from networktunnel.remote_server import SocksServerFactory
 from networktunnel.logger import textFileLogObserver
+from networktunnel.remote_server import SocksServerFactory
 from networktunnel.service import TunnelService
+from settings import BASE_DIR
 
 conf = ConfigManager().default
 

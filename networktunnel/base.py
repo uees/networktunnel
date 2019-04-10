@@ -1,9 +1,9 @@
 import socket
 import struct
 
-from twisted.logger import Logger
 from twisted.internet import defer, protocol
 from twisted.internet.address import HostnameAddress, IPv4Address, IPv6Address
+from twisted.logger import Logger
 
 from networktunnel import constants, errors
 from networktunnel.helpers import socks_domain_host

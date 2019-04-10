@@ -7,11 +7,11 @@ from twisted.internet.endpoints import (clientFromString, connectProtocol,
                                         serverFromString)
 
 from config import ConfigManager
-
 from networktunnel import constants, errors
 from networktunnel.base import BaseSocksServer
 from networktunnel.helpers import get_method, parse_address
-from networktunnel.remote_client import BindProxyClientFactory, ProxyClient, UdpProxyClient
+from networktunnel.remote_client import (BindProxyClientFactory, ProxyClient,
+                                         UdpProxyClient)
 from networktunnel.shadow import ShadowProtocol
 
 

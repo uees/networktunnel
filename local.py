@@ -10,17 +10,17 @@ elif platform.system() == 'Windows':
 
     iocpreactor.install()
 
-from twisted.internet.endpoints import TCP4ServerEndpoint
+from twisted.application import internet, service
 from twisted.internet import reactor
-from twisted.application import service, internet
+from twisted.internet.endpoints import TCP4ServerEndpoint
 from twisted.logger import ILogObserver
 from twisted.python.logfile import DailyLogFile
 
 from config import ConfigManager
-from settings import BASE_DIR
-from networktunnel.logger import textFileLogObserver
 from networktunnel.local_server import TransferServerFactory
+from networktunnel.logger import textFileLogObserver
 from networktunnel.service import PacService
+from settings import BASE_DIR
 
 conf = ConfigManager().default
 
