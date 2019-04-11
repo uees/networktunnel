@@ -62,7 +62,7 @@ class TransferServer(BaseSocksServer):
         self.set_state(self.STATE_WAITING_CONNECTION)
 
     def on_client_established(self):
-        self.log.info('Second response received with bind cmd')
+        self.log.info('local client established')
         self.set_state(self.STATE_ESTABLISHED)
 
     def negotiate_methods(self, data: bytes):

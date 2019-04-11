@@ -222,7 +222,7 @@ class SocksServer(BaseSocksServer):
         d = connectProtocol(point, ProxyClient(self))
 
         def success(ignored):
-            self.log.info("connect to {domain}, {port}", domain=domain, port=port)
+            self.log.info("connected to {domain}, {port}", domain=domain, port=port)
 
             # We're connected, everybody can read to their hearts content.
             self.transport.resumeProducing()

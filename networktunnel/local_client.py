@@ -65,8 +65,6 @@ class ProxyClient(protocol.Protocol):
             self.server.transport.loseConnection()
             self.server = None
 
-        log.info(f"Unable to connect to peer: {reason}")
-
     def dataReceived(self, data):
         # 这里是接收到远程 socks 服务器的数据
         # 首先解密
