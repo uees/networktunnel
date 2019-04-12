@@ -42,23 +42,23 @@ class BaseSocksServer(protocol.Protocol):
         if self.factory.num_protocols > 0:
             self.factory.num_protocols -= 1
 
-        if self.udp_port is not None:
-            self.udp_port.stopListening()
-            # self.udp_client.doStop()
-
         if self.client is not None and self.client.transport:
             self.client.transport.loseConnection()
+            self.client = None
 
-        self.udp_port = None
-        self.udp_client = None
-        self.client = None
+        if self.udp_port is not None:
+            def stoped(result):
+                self.udp_port = None
+                self.udp_client = None
+
+            self.udp_port.stopListening().addCallbacks(stoped, self.on_error)
 
     def check_version(self, ver: int):
         if ver != self._version:
             self.log.warn(f'Wrong version from {self.peer_address}')
             return defer.fail(errors.InvalidServerVersion())
 
-        return defer.succeed(True)
+        return defer.succeed(ver)
 
     def on_error(self, failure):
         self.set_state(self.STATE_ERROR)

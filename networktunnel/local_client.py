@@ -165,7 +165,7 @@ class ProxyClient(protocol.Protocol):
             if self.request_cmd == constants.CMD_UDP_ASSOCIATE:
                 atyp = ord(data[3:4])
                 host, port = parse_address(atyp, data)
-                self.server.upd_client.set_peer((host, port), atyp)  # 保存地址信息
+                self.server.udp_client.set_peer((host, port), atyp)  # 保存地址信息
 
                 data = self.modify_udp_cmd_response(constants.SOCKS5_VER, rep)
                 self.server.write(data)
@@ -193,8 +193,8 @@ class ProxyClient(protocol.Protocol):
         self.server.on_client_established()
 
     def modify_udp_cmd_response(self, ver, rep):
-        # 修改地址信息, 通知 socks 客户端由本地另一UPD端口转发数据
-        address = self.server.upd_client.address
+        # 修改地址信息, 通知 socks 客户端由本地另一UDP端口转发数据
+        address = self.server.udp_client.address
         if isinstance(address, IPv4Address):
             addr = socket.inet_aton(address.host)
             addr_type = constants.ATYP_IPV4

@@ -52,12 +52,10 @@ class SocksServer(BaseSocksServer):
             self.client.write(data)
 
         elif self.is_state(self.STATE_METHODS):
-            self.log.info('Start negotiating the certification method')
             d = self.negotiate_methods(data)
             d.addCallbacks(reset_timeout, self.on_error)
 
         elif self.is_state(self.STATE_AUTH):
-            self.log.info('Start auth')
             if self._auth_method == constants.AUTH_TOKEN:
                 d = self.auth_token(data)
                 d.addCallbacks(reset_timeout, self.on_error)
@@ -66,7 +64,6 @@ class SocksServer(BaseSocksServer):
                 self.on_error(errors.LoginAuthenticationFailed())
 
         elif self.is_state(self.STATE_COMMAND):
-            self.log.info('Parse the request command')
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
@@ -106,6 +103,7 @@ class SocksServer(BaseSocksServer):
     # +-----+--------+
     def negotiate_methods(self, data: bytes):
         """ 协商 methods """
+        self.log.info('Start negotiating the certification method')
         if len(data) < 3:
             return defer.fail(errors.ParsingError())
 
@@ -148,6 +146,7 @@ class SocksServer(BaseSocksServer):
     def auth_token(self, data: bytes):
         from .auth import auth_token
 
+        self.log.info('Start auth token')
         if len(data) < 3:
             return defer.fail(errors.ParsingError())
 
@@ -184,6 +183,8 @@ class SocksServer(BaseSocksServer):
     # +----+-----+-------+------+----------+----------+
     def parse_command(self, data: bytes):
         """ 解析命令 """
+        self.log.info('Parse the request command')
+
         if len(data) < 4:
             return defer.fail(errors.ParsingError())
 
@@ -192,6 +193,8 @@ class SocksServer(BaseSocksServer):
 
         def assign_command(ignored):
             """ 分配命令 """
+            self.log.info('assign command')
+
             domain, port = parse_address(atyp, data)  # maybe raise AddressNotSupported
             if cmd == constants.CMD_CONNECT:
                 return self.do_connect(domain, port)  # defer
@@ -215,6 +218,7 @@ class SocksServer(BaseSocksServer):
         :param port: 服务端端口
         :return: defer
         """
+        self.log.info('do connect command')
         # Don't read anything from the connecting client until we have somewhere to send it to.
         self.transport.pauseProducing()
 
@@ -247,9 +251,12 @@ class SocksServer(BaseSocksServer):
         :param port: 建议 SOCKS 服务器使用监听端口
         :return: defer
         """
+        self.log.info('do bind command')
+
         self.transport.pauseProducing()
 
         def first_reply(listening_port):
+            self.log.info('first reply')
             # 第一次回复是在服务器创建并绑定一个新的套接字之后发送的
             self.make_reply(constants.SOCKS5_GRANTED, listening_port.getHost())
             self.set_state(self.STATE_WAITING_CONNECTION)
@@ -270,20 +277,19 @@ class SocksServer(BaseSocksServer):
         :param atyp: 地址类型
         :return: defer
         """
-        d = defer.Deferred()
+        self.log.info('do udp associate command')
 
         # fix :: 0.0.0.0
         if host == socket.inet_aton('0.0.0.0') or host == socket.inet_pton(socket.AF_INET6, '::'):
             host = self.peer_address.host
 
-        def reply(ignored):
-            self.udp_client = UdpProxyClient(self, addr=(host, port), atyp=atyp)
-            self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
-            self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
-            self.set_state(self.STATE_ESTABLISHED)
+        self.udp_client = UdpProxyClient(self, addr=(host, port), atyp=atyp)
+        self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
+        self.make_reply(constants.SOCKS5_GRANTED, self.udp_port.getHost())
+        self.set_state(self.STATE_ESTABLISHED)
+        self.log.info('udp command success')
 
-        d.addCallback(reply)
-        return d
+        return defer.succeed(self.udp_port)
 
 
 class SocksServerFactory(protocol.Factory):

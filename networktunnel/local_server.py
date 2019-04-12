@@ -104,7 +104,7 @@ class TransferServer(BaseSocksServer):
 
                 address = self.udp_port.getHost()
 
-                # 修改 CMD 包, 通知 socks 服务器由本地UPD代理客户端转发数据
+                # 修改 CMD 包, 通知 socks 服务器由本地UDP代理客户端转发数据
                 request = b''.join([
                     struct.pack('!4B', self._version, constants.CMD_UDP_ASSOCIATE, constants.RSV, constants.ATYP_IPV4),
                     b''.join([socket.inet_aton(address.host), struct.pack('!H', address.port)])
@@ -128,7 +128,7 @@ class TransferServer(BaseSocksServer):
         org_host, org_port = parse_address(atyp, data)
 
         self.udp_client = UDPProxyClient(self, addr=(org_host, org_port), atyp=atyp)
-        self.udp_port = self.factory.reactor.listenUDP(0, self.upd_client)
+        self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
 
     def start_client(self):
         self.transport.pauseProducing()

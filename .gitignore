@@ -106,3 +106,4 @@ venv.bak/
 _trial_temp/
 default.conf
 *.pem
+*.log.*
