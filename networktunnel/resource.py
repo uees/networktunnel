@@ -10,5 +10,5 @@ class PacResource(Resource):
 
     def render_GET(self, request):
         request.setHeader('Content-Type', 'text/plain;charset=UTF-8')
-        with open(os.path.join(BASE_DIR, 'pac.txt'), 'rb') as fp:
+        with open(os.path.join(BASE_DIR, 'proxy.pac.js'), 'rb') as fp:
             return fp.read()

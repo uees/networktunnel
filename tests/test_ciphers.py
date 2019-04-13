@@ -1,10 +1,12 @@
 # python -m twisted.trial tests.test_ciphers
+import os
 import base64
 import binascii
 
 from twisted.trial import unittest
 
-from config import  ConfigManager
+from config import ConfigManager
+from settings import BASE_DIR
 from networktunnel.ciphers import AES128CFB, TableManager, ciphers
 
 conf = ConfigManager().default
@@ -28,16 +30,10 @@ class SocksServerTestCase(unittest.TestCase):
 
         secret_message = encrypt(message)
 
-        print(secret_message)
-        print(len(secret_message))
-
         decrypt = aes_manager.make_decrypter(iv)
         self.assertTrue(callable(decrypt))
 
         self.assertEqual(decrypt(secret_message), message)
-
-        decrypt = aes_manager.make_decrypter(iv)  # 每次都要 make_decrypter
-        print(decrypt(b'\xe5e'))
 
     def test_table(self):
         local_table = TableManager()
@@ -45,12 +41,12 @@ class SocksServerTestCase(unittest.TestCase):
 
         message = 'sda'
 
-        iv, encrypt = local_table.make_encrypter('../keys/encrypt_password.pem')
+        iv, encrypt = local_table.make_encrypter(os.path.join(BASE_DIR, 'keys/encrypt_password.pem'))
         self.assertTrue(callable(encrypt))
 
         secret_message = encrypt(message.encode())
 
-        decrypt = remote_table.make_decrypter('../keys/decrypt_password.pem')
+        decrypt = remote_table.make_decrypter(os.path.join(BASE_DIR, 'keys/decrypt_password.pem'))
         self.assertTrue(callable(decrypt))
 
         self.assertEqual(decrypt(secret_message).decode(), message)

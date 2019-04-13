@@ -241,11 +241,12 @@ class RSAManager(object):
 
 class TableCipher(object):
 
-    def __init__(self, password):
+    def __init__(self, password: list):
+        assert len(password) == 256
         self.password = password
 
     def encrypt(self, message: bytes):
-        encrypt_data = [(self.password[str(val)]).to_bytes(length=1, byteorder='big') for val in bytearray(message)]
+        encrypt_data = [(self.password[val]).to_bytes(length=1, byteorder='big') for val in bytearray(message)]
         return b''.join(encrypt_data)
 
     def decrypt(self, ciphertext: bytes, sentinel=None):
