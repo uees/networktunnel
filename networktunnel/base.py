@@ -10,12 +10,19 @@ from networktunnel.helpers import socks_domain_host
 
 
 class BaseSocksServer(protocol.Protocol):
-    STATE_METHODS = 0x01  # 协商认证方法
-    STATE_AUTH = 0x02  # 认证中
-    STATE_COMMAND = 0x03  # 解析命令
-    STATE_WAITING_CONNECTION = 0x04
-    STATE_ESTABLISHED = 0x05  # 成功
-    STATE_DISCONNECTED = 0x06
+    STATE_CREATED = 0x01  # 创建
+    STATE_CONNECTED = 0x02  # 连接
+    STATE_RECEIVED_METHODS = 0x03  # 协商认证方法
+    STATE_SENT_METHOD = 0x04  # 确认了方法
+    STATE_RECEIVED_AUTHENTICATION = 0x05  # 接收认证请求
+    STATE_SENT_AUTHENTICATION_RESULT = 0x06  # 完成认证
+    STATE_RECEIVED_COMMAND = 0x07  # 解析命令
+    STATE_PARSED_COMMAND = 0x08  # 解析命令完成
+    STATE_CLIENT_MADE = 0x09
+    STATE_UDP_CLIENT_MADE = 0x0a
+    STATE_WAITING_CONNECTION = 0x0b
+    STATE_ESTABLISHED = 0x0c  # 成功
+    STATE_DISCONNECTED = 0x0d
     STATE_ERROR = 0xff
     log = None
 
@@ -29,6 +36,7 @@ class BaseSocksServer(protocol.Protocol):
 
         self._version = constants.SOCKS5_VER
         self._state = None
+        self._buffered = b''
 
     def connectionMade(self):
         self.set_state(self.STATE_METHODS)
@@ -111,3 +119,12 @@ class BaseSocksServer(protocol.Protocol):
 
     def set_state(self, state):
         self._state = state
+
+    def readBytes(self, bytes=None):
+        # Set all bytes
+        if bytes is None:
+            bytes = len(self._buffered)
+
+        data, self._buffered = self._buffered[:bytes], self._buffered[bytes:]
+
+        return data

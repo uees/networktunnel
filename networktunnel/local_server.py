@@ -94,7 +94,7 @@ class TransferServer(BaseSocksServer):
         ver, cmd, rsv, atyp = struct.unpack('!4B', data[0:4])
         d = self.check_version(ver)
 
-        def parse(ignored):
+        def do_parse(ignored):
             """ 分配命令 """
             if cmd in (constants.CMD_CONNECT, constants.CMD_BIND):
                 return data
@@ -114,7 +114,7 @@ class TransferServer(BaseSocksServer):
 
             raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
 
-        d.addCallback(parse)
+        d.addCallback(do_parse)
 
         def send_command(request):
             self.client.sendCommand(request)
