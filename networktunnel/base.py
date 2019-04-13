@@ -51,7 +51,8 @@ class BaseSocksServer(protocol.Protocol):
                 self.udp_port = None
                 self.udp_client = None
 
-            self.udp_port.stopListening().addCallbacks(stoped, self.on_error)
+            # 不用调用 stopListening 会自动 stopListening
+            # self.udp_port.stopListening().addCallbacks(stoped, self.on_error)
 
     def check_version(self, ver: int):
         if ver != self._version:
