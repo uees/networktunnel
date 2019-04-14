@@ -17,12 +17,9 @@ class BaseSocksServer(protocol.Protocol):
     STATE_RECEIVED_AUTHENTICATION = 0x05  # 接收认证请求
     STATE_SENT_AUTHENTICATION_RESULT = 0x06  # 完成认证
     STATE_RECEIVED_COMMAND = 0x07  # 解析命令
-    STATE_PARSED_COMMAND = 0x08  # 解析命令完成
-    STATE_CLIENT_MADE = 0x09
-    STATE_UDP_CLIENT_MADE = 0x0a
-    STATE_WAITING_CONNECTION = 0x0b
-    STATE_ESTABLISHED = 0x0c  # 成功
-    STATE_DISCONNECTED = 0x0d
+    STATE_WAITING_CONNECTION = 0x08
+    STATE_ESTABLISHED = 0x09  # 成功
+    STATE_DISCONNECTED = 0x0a
     STATE_ERROR = 0xff
     log = None
 
@@ -36,7 +33,7 @@ class BaseSocksServer(protocol.Protocol):
 
         self._version = constants.SOCKS5_VER
         self._state = None
-        self._buffered = b''
+        self._buffered = b''  # todo ctypes buffer
 
     def connectionMade(self):
         self.set_state(self.STATE_METHODS)
@@ -120,11 +117,17 @@ class BaseSocksServer(protocol.Protocol):
     def set_state(self, state):
         self._state = state
 
-    def readBytes(self, bytes=None):
-        # Set all bytes
+    def read_bytes(self, bytes=None):
         if bytes is None:
-            bytes = len(self._buffered)
+            data = self._buffered
+            self._buffered = b''
+            return data
 
         data, self._buffered = self._buffered[:bytes], self._buffered[bytes:]
-
         return data
+
+    def load_buffer(self, data):
+        if self._buffered == b'':
+            self._buffered = data
+        else:
+            self._buffered = b''.join([self._buffered, data])
