@@ -21,10 +21,9 @@ class BaseSocksServer(protocol.Protocol):
     STATE_ESTABLISHED = 0x09  # 成功
     STATE_DISCONNECTED = 0x0a
     STATE_ERROR = 0xff
-    log = None
+    log = Logger()
 
     def __init__(self):
-        self.log = Logger()
         self.peer_address = None
         self.host_address = None
         self.client = None
@@ -33,10 +32,11 @@ class BaseSocksServer(protocol.Protocol):
 
         self._version = constants.SOCKS5_VER
         self._state = None
-        self._buffered = b''  # todo ctypes buffer
+        # self._buffered = ctypes.c_buffer(1024 * 4)  # ４Ｍ
+        self.set_state(self.STATE_CREATED)
 
     def connectionMade(self):
-        self.set_state(self.STATE_METHODS)
+        self.set_state(self.STATE_CONNECTED)
         self.peer_address = self.transport.getPeer()  # socks client address
         self.host_address = self.transport.getHost()
 
@@ -117,17 +117,19 @@ class BaseSocksServer(protocol.Protocol):
     def set_state(self, state):
         self._state = state
 
-    def read_bytes(self, bytes=None):
-        if bytes is None:
-            data = self._buffered
-            self._buffered = b''
+    '''
+    def read_bytes(self, bytes_num=None):
+        if bytes_num is None:
+            data = self._buffered.value
+            self._buffered = libc.strcpy(self._buffered, b'')  # 重置
             return data
 
-        data, self._buffered = self._buffered[:bytes], self._buffered[bytes:]
+        data_buffer = ctypes.c_buffer(bytes_num)
+        libc.memcpy(data_buffer, self._buffered, bytes_num)
+        data = data_buffer.value
+        libc.strcpy(self._buffered, ctypes.cast(ctypes.byref(self._buffered, bytes_num), ctypes.c_char_p))
         return data
 
     def load_buffer(self, data):
-        if self._buffered == b'':
-            self._buffered = data
-        else:
-            self._buffered = b''.join([self._buffered, data])
+        libc.strcat(self._buffered, data)
+    '''

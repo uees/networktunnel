@@ -27,7 +27,7 @@ class SocksServer(BaseSocksServer):
         super().connectionMade()
 
         # next 2 line do 直接从认证开始
-        self.set_state(self.STATE_AUTH)
+        self.set_state(self.STATE_SENT_METHOD)
         self._auth_method = constants.AUTH_TOKEN
 
         self.log.info('Connection made {address}', address=self.peer_address)
@@ -45,34 +45,36 @@ class SocksServer(BaseSocksServer):
         else:
             data = self.factory.shadow.decrypt_protocol_data(data)
 
-        def reset_timeout(ignored):
-            pass
-
-        if self.is_state(self.STATE_ESTABLISHED):
+        if self.is_state(self.STATE_ESTABLISHED):  # 所有就绪
             self.client.write(data)
 
-        elif self.is_state(self.STATE_METHODS):
+        elif self.is_state(self.STATE_CONNECTED):  # 建立了连接
             d = self.negotiate_methods(data)
-            d.addCallbacks(reset_timeout, self.on_error)
+            d.addErrback(self.on_error)
 
-        elif self.is_state(self.STATE_AUTH):
+        elif self.is_state(self.STATE_SENT_METHOD):  # 发送了认证方法
             if self._auth_method == constants.AUTH_TOKEN:
                 d = self.auth_token(data)
-                d.addCallbacks(reset_timeout, self.on_error)
-
+                d.addErrback(self.on_error)
             else:
                 self.on_error(errors.LoginAuthenticationFailed())
 
-        elif self.is_state(self.STATE_COMMAND):
+        elif self.is_state(self.STATE_SENT_AUTHENTICATION_RESULT):  # 解析命令
             d = self.parse_command(data)
             d.addErrback(self.on_error)
 
-        elif self.is_state(self.STATE_WAITING_CONNECTION):
-            # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
-            # 这个状态下等待 remote target 的数据
-            self.log.debug('Waiting for target connection')
+        elif self.is_state(self.STATE_ERROR):
+            self.transport.loseConnection()
+
         else:
-            self.on_error(errors.StateError())
+            # 这些状态下应该是不会有数据发送过来的
+            # STATE_RECEIVED_METHODS
+            # STATE_RECEIVED_AUTHENTICATION
+            # STATE_RECEIVED_COMMAND
+            # STATE_WAITING_CONNECTION
+            # STATE_DISCONNECTED
+            # STATE_ERROR
+            self.log.error('Unexpected data, STATE: {state}', state=self._state)
 
     def write(self, data):
         # 加密
@@ -104,6 +106,7 @@ class SocksServer(BaseSocksServer):
     def negotiate_methods(self, data: bytes):
         """ 协商 methods """
         self.log.info('Start negotiating the certification method')
+        self.set_state(self.STATE_RECEIVED_METHODS)
         if len(data) < 3:
             return defer.fail(errors.ParsingError())
 
@@ -119,9 +122,9 @@ class SocksServer(BaseSocksServer):
                 raise errors.NoAcceptableMethods()
 
             if self._auth_method == constants.AUTH_ANONYMOUS:
-                next_state = self.STATE_COMMAND
+                next_state = self.STATE_SENT_AUTHENTICATION_RESULT
             else:
-                next_state = self.STATE_AUTH
+                next_state = self.STATE_SENT_METHOD
 
             self.write(struct.pack('!BB', self._version, self._auth_method))
             self.set_state(next_state)
@@ -147,6 +150,7 @@ class SocksServer(BaseSocksServer):
         from .auth import auth_token
 
         self.log.info('Start auth token')
+        self.set_state(self.STATE_RECEIVED_AUTHENTICATION)
         if len(data) < 3:
             return defer.fail(errors.ParsingError())
 
@@ -160,7 +164,7 @@ class SocksServer(BaseSocksServer):
 
             def on_success(result):
                 self.write(struct.pack('!BB', self._version, constants.AUTH_SUCCESS))
-                self.set_state(self.STATE_COMMAND)
+                self.set_state(self.STATE_SENT_AUTHENTICATION_RESULT)
 
             dd.addCallback(on_success)
 
@@ -184,6 +188,7 @@ class SocksServer(BaseSocksServer):
     def parse_command(self, data: bytes):
         """ 解析命令 """
         self.log.info('Parse the request command')
+        self.set_state(self.STATE_RECEIVED_COMMAND)
 
         if len(data) < 4:
             return defer.fail(errors.ParsingError())

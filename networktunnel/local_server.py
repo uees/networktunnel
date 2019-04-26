@@ -22,32 +22,35 @@ class TransferServer(BaseSocksServer):
         if self.is_state(self.STATE_ESTABLISHED):
             self.client.write(data)
 
-        elif self.is_state(self.STATE_METHODS):
+        elif self.is_state(self.STATE_CONNECTED):  # 建立了连接
             # 这个状态下开始建立本地端口转发客户端
-            self.log.info('Start negotiating the certification method')
             self.negotiate_methods(data).addErrback(self.on_error)
 
-        elif self.is_state(self.STATE_AUTH):
-            self.log.info('Start auth')
+        elif self.is_state(self.STATE_SENT_METHOD):
             # 本地端口转换服务没有设计认证, 始终不会有这个状态
-            pass
+            self.log.error('Unexpected data, STATE: {state}', state=self._state)
 
-        elif self.is_state(self.STATE_COMMAND):
-            self.log.info('Parse the command')
+        elif self.is_state(self.STATE_SENT_AUTHENTICATION_RESULT):
             # 这个状态下已经建立了端口转发客户端
             self.parse_command(data).addErrback(self.on_error)
 
-        elif self.is_state(self.STATE_WAITING_CONNECTION):
-            # bind request 时会有这个状态, 协议中这种状态下是没有 socks client 的数据过来的，
-            # 这个状态下等待 remote target 的数据
-            self.log.debug('Waiting for connection')
+        elif self.is_state(self.STATE_ERROR):
+            self.transport.loseConnection()
+
         else:
-            self.on_error(errors.StateError())
+            # 这些状态下应该是不会有数据发送过来的
+            # STATE_RECEIVED_METHODS
+            # STATE_RECEIVED_AUTHENTICATION
+            # STATE_RECEIVED_COMMAND
+            # STATE_WAITING_CONNECTION
+            # STATE_DISCONNECTED
+            # STATE_ERROR
+            self.log.error('Unexpected data, STATE: {state}', state=self._state)
 
     def on_client_auth_ok(self):
         self.log.info('client authentication success')
         self.write(struct.pack('!BB', self._version, constants.AUTH_ANONYMOUS))
-        self.set_state(self.STATE_COMMAND)
+        self.set_state(self.STATE_SENT_AUTHENTICATION_RESULT)
         self.transport.resumeProducing()
 
     def on_client_auth_error(self):
@@ -67,6 +70,9 @@ class TransferServer(BaseSocksServer):
 
     def negotiate_methods(self, data: bytes):
         """ 协商 methods """
+        self.log.info('Start negotiating the certification method')
+        self.set_state(self.STATE_RECEIVED_METHODS)
+
         if len(data) < 3:
             return defer.fail(errors.ParsingError())
 
@@ -88,6 +94,9 @@ class TransferServer(BaseSocksServer):
 
     def parse_command(self, data: bytes):
         """ 解析命令 """
+        self.log.info('Parse the request command')
+        self.set_state(self.STATE_RECEIVED_COMMAND)
+
         if len(data) < 4:
             return defer.fail(errors.ParsingError())
 
@@ -124,6 +133,7 @@ class TransferServer(BaseSocksServer):
         return d
 
     def start_udp_client(self, atyp, data):
+        self.log.info('start udp client')
         # 获取 socks 客户端绑定的 UDP 端口
         org_host, org_port = parse_address(atyp, data)
 
@@ -131,6 +141,7 @@ class TransferServer(BaseSocksServer):
         self.udp_port = self.factory.reactor.listenUDP(0, self.udp_client)
 
     def start_client(self):
+        self.log.info('start client')
         self.transport.pauseProducing()
         conf = ConfigManager().default
         proxy_host_port = conf.get('local', 'proxy_host_port')
