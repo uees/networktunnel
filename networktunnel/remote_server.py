@@ -49,19 +49,16 @@ class SocksServer(BaseSocksServer):
             self.client.write(data)
 
         elif self.is_state(self.STATE_CONNECTED):  # 建立了连接
-            d = self.negotiate_methods(data)
-            d.addErrback(self.on_error)
+            self.negotiate_methods(data)
 
         elif self.is_state(self.STATE_SENT_METHOD):  # 发送了认证方法
             if self._auth_method == constants.AUTH_TOKEN:
-                d = self.auth_token(data)
-                d.addErrback(self.on_error)
+                self.auth_token(data)
             else:
                 self.on_error(errors.LoginAuthenticationFailed())
 
         elif self.is_state(self.STATE_SENT_AUTHENTICATION_RESULT):  # 解析命令
-            d = self.parse_command(data)
-            d.addErrback(self.on_error)
+            self.parse_command(data)
 
         elif self.is_state(self.STATE_ERROR):
             self.transport.loseConnection()
@@ -130,6 +127,7 @@ class SocksServer(BaseSocksServer):
             self.set_state(next_state)
 
         d.addCallback(negotiate)
+        d.addErrback(self.on_error)
 
         return d
 
@@ -171,6 +169,7 @@ class SocksServer(BaseSocksServer):
             return dd
 
         d.addCallback(do_auth)
+        d.addErrback(self.on_error)
 
         return d
 
@@ -213,6 +212,7 @@ class SocksServer(BaseSocksServer):
             raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
 
         d.addCallback(assign_command)
+        d.addErrback(self.on_error)
 
         return d
 
@@ -239,12 +239,10 @@ class SocksServer(BaseSocksServer):
             self.make_reply(constants.SOCKS5_GRANTED, address=self.client.host_address)
             self.set_state(self.STATE_ESTABLISHED)
 
-        d.addCallback(success)
-
         def error(failure):
             raise errors.HostUnreachable()
 
-        d.addErrback(error)
+        d.addCallbacks(success, error)
 
         return d
 
