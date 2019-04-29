@@ -86,7 +86,7 @@ class TransferServer(BaseSocksServer):
             if constants.AUTH_ANONYMOUS not in methods:
                 raise errors.NoAcceptableMethods()
 
-            return self.start_client().addErrback(lambda failure: failure)  # 传递 failure
+            return self.start_client().addErrback(self.on_error)
 
         d.addCallback(negotiate)
         d.addErrback(self.on_error)

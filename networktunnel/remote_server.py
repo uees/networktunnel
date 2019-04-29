@@ -201,10 +201,10 @@ class SocksServer(BaseSocksServer):
 
             domain, port = parse_address(atyp, data)  # maybe raise AddressNotSupported
             if cmd == constants.CMD_CONNECT:
-                return self.do_connect(domain, port)  # defer
+                return self.do_connect(domain, port).addErrback(self.on_error)  # defer
 
             if cmd == constants.CMD_BIND:
-                return self.do_bind(domain, port)  # defer
+                return self.do_bind(domain, port).addErrback(self.on_error)  # defer
 
             if cmd == constants.CMD_UDP_ASSOCIATE:
                 return self.do_udp_associate(domain, port, atyp)  # defer
