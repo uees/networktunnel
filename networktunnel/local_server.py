@@ -24,7 +24,7 @@ class TransferServer(BaseSocksServer):
 
         elif self.is_state(self.STATE_CONNECTED):  # 建立了连接
             # 这个状态下开始建立本地端口转发客户端
-            self.negotiate_methods(data).addErrback(self.on_error)
+            self.negotiate_methods(data)
 
         elif self.is_state(self.STATE_SENT_METHOD):
             # 本地端口转换服务没有设计认证, 始终不会有这个状态
@@ -32,7 +32,7 @@ class TransferServer(BaseSocksServer):
 
         elif self.is_state(self.STATE_SENT_AUTHENTICATION_RESULT):
             # 这个状态下已经建立了端口转发客户端
-            self.parse_command(data).addErrback(self.on_error)
+            self.parse_command(data)
 
         elif self.is_state(self.STATE_ERROR):
             self.transport.loseConnection()
@@ -86,9 +86,10 @@ class TransferServer(BaseSocksServer):
             if constants.AUTH_ANONYMOUS not in methods:
                 raise errors.NoAcceptableMethods()
 
-            return self.start_client()
+            return self.start_client().addErrback(self.on_error)
 
         d.addCallback(negotiate)
+        d.addErrback(self.on_error)
 
         return d
 
@@ -123,12 +124,12 @@ class TransferServer(BaseSocksServer):
 
             raise errors.CommandNotSupported(f"Not implement {cmd} yet!")
 
-        d.addCallback(do_parse)
-
         def send_command(request):
             self.client.sendCommand(request)
 
+        d.addCallback(do_parse)
         d.addCallback(send_command)
+        d.addErrback(self.on_error)
 
         return d
 
@@ -142,10 +143,12 @@ class TransferServer(BaseSocksServer):
 
     def start_client(self):
         self.log.info('start client')
+
         self.transport.pauseProducing()
         conf = ConfigManager().default
         proxy_host_port = conf.get('local', 'proxy_host_port')
         point = clientFromString(self.factory.reactor, f"tcp:{proxy_host_port}")
+
         d = connectProtocol(point, ProxyClient(self))
 
         def error(failure):
