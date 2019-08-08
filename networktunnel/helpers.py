@@ -1,5 +1,6 @@
 import socket
 import struct
+from collections import OrderedDict
 
 from networktunnel import constants, errors
 
@@ -150,3 +151,47 @@ def get_method(methods: iter, choice: iter) -> int:
             break
 
     return result
+
+
+class LRUCache(object):
+    """
+    Simple LRU Cache, using OrderedDict.
+    保证基本的get和set的功能的同时，还要保证最近访问(get或put)的节点保持在限定容量的Cache中，
+    如果超过容量则应该把LRU(近期最少使用)的节点删除掉。
+    """
+
+    def __init__(self, capacity=1000):
+        self.capacity = capacity
+        self.used = 0
+        self.cache = OrderedDict()
+
+    def get(self, key):
+        # Don't catch KeyError here, for the sake of twisted CachedResolver
+        # implementation.
+        value = self.cache.pop(key)
+        self.cache[key] = value
+        return value
+
+    def set(self, key, value):
+        try:
+            self.cache.pop(key)
+        except KeyError:
+            if len(self.cache) >= self.capacity:
+                self.cache.popitem(last=False)
+        self.cache[key] = value
+        self.used = len(self.cache)
+
+    def __getitem__(self, key):
+        return self.get(key)
+
+    def __setitem__(self, key, value):
+        self.set(key, value)
+
+    def __delitem__(self, key):
+        del self.cache[key]
+
+    def __len__(self):
+        return len(self.cache)
+
+    def items(self):
+        return self.cache.items()

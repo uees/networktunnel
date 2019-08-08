@@ -1,0 +1,16 @@
+[Unit]
+Description=networktunnel a hight speed proxy
+Documentation=https://github.com/uees/networktunnel
+After=syslog.target network.target remote-fs.target nss-lookup.target
+
+[Service]
+Type=forking
+ExecStartPre=
+ExecStart=/home/wan/networktunnel/venv/bin/twistd -y /home/wan/networktunnel/local.tac
+WorkingDirectory=/home/wan/networktunnel
+ExecReload=/bin/kill -s HUP $MAINPID
+ExecStop=/bin/kill -s QUIT $MAINPID
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

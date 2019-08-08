@@ -107,3 +107,4 @@ _trial_temp/
 default.conf
 *.pem
 *.log.*
+twistd.pid
