@@ -10,19 +10,42 @@ import (
 // UDPEnabled is the toggle for UDP support
 var UDPEnabled = false
 
+// SocksRSV 保留字
+const SocksRSV = byte(0x00)
+
+// SocksVersion 版本
+const SocksVersion = byte(0x05)
+
+// SOCKS Auth types
+const (
+	AuthAnonymous = byte(0x00)
+	AuthLogin     = byte(0x01)
+	AuthToken     = byte(0x80)
+)
+
+// SOCKS Auth responses
+const (
+	AuthError               = byte(0x00)
+	AuthSuccess             = byte(0x01)
+	AuthNoAcceptableMethods = byte(0xff)
+)
+
 // SOCKS request commands as defined in RFC 1928 section 4.
 const (
-	CmdConnect      = 1
-	CmdBind         = 2
-	CmdUDPAssociate = 3
+	CmdConnect      = byte(0x01) // byte alias for uint8
+	CmdBind         = byte(0x02)
+	CmdUDPAssociate = byte(0x03)
 )
 
 // SOCKS address types as defined in RFC 1928 section 5.
 const (
-	AtypIPv4       = 1
-	AtypDomainName = 3
-	AtypIPv6       = 4
+	AtypIPv4       = byte(0x01)
+	AtypDomainName = byte(0x03)
+	AtypIPv6       = byte(0x04)
 )
+
+// SocksSucceeded SOCKS5_GRANTED
+const SocksSucceeded = byte(0x00)
 
 // Error represents a SOCKS error
 type Error byte
@@ -33,15 +56,15 @@ func (err Error) Error() string {
 
 // SOCKS errors as defined in RFC 1928 section 6.
 const (
-	ErrGeneralFailure       = Error(1)
-	ErrConnectionNotAllowed = Error(2)
-	ErrNetworkUnreachable   = Error(3)
-	ErrHostUnreachable      = Error(4)
-	ErrConnectionRefused    = Error(5)
-	ErrTTLExpired           = Error(6)
-	ErrCommandNotSupported  = Error(7)
-	ErrAddressNotSupported  = Error(8)
-	InfoUDPAssociate        = Error(9)
+	ErrGeneralFailure       = Error(0x01)
+	ErrConnectionNotAllowed = Error(0x02)
+	ErrNetworkUnreachable   = Error(0x03)
+	ErrHostUnreachable      = Error(0x04)
+	ErrConnectionRefused    = Error(0x05)
+	ErrTTLExpired           = Error(0x06)
+	ErrCommandNotSupported  = Error(0x07)
+	ErrAddressNotSupported  = Error(0x08)
+	InfoUDPAssociate        = Error(0x09)
 )
 
 // MaxAddrLen is the maximum size of SOCKS address in bytes.
