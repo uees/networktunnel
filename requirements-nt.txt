@@ -1,5 +1,5 @@
 Twisted>=20.3.0
-pycryptodome==3.8.1
+pycryptodome==3.19.1
 pyOpenSSL==19.0.0
 service-identity==18.1.0
 pywin32
